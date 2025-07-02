@@ -1,0 +1,26 @@
+services:
+  server:
+    container_name: flatline-server-test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+    pull_policy: never
+    image: flatline-server-test
+    command:  
+      - bash
+      - -c
+      - |
+        echo 'docker:docker@flatline-server-test-fdb:4500' > /etc/foundationdb/fdb.cluster
+        export FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster 
+        /usr/bin/fdbcli --exec 'configure new single memory'
+        ./mvnw -e -B clean verify -DfoundationDb.serviceContainerName=flatline-server-test-fdb
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Allow access to Docker in the host.
+      - maven-cache:/root/.m2
+    depends_on:
+      - fdb
+  fdb:
+    container_name: flatline-server-test-fdb
+    image: foundationdb/foundationdb:7.3.62
+volumes:
+  maven-cache:

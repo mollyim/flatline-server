@@ -1,0 +1,18 @@
+services:
+  server:
+    container_name: flatline-server
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    pull_policy: never
+    image: flatline-server
+    entrypoint: 
+      - java
+      - -Dsecrets.bundle.filename=/secrets.yml
+      - -jar
+      - /TextSecureServer.jar
+      - server
+      - /config.yml 
+    volumes:
+      - ../service/config/sample.yml:/config.yml 
+      - ../service/config/sample-secrets-bundle.yml:/secrets.yml 
