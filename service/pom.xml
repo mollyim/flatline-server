@@ -666,12 +666,15 @@
                 </platforms>
               </from>
               <to>
-                <image>${docker.repo}:${project.version}</image>
+                  <!-- NOTE(uoemai): Add environment suffix. -->
+                  <image>${docker.repo}:${project.version}-${env}</image>
               </to>
               <container>
                 <mainClass>org.whispersystems.textsecuregcm.WhisperServerService</mainClass>
                 <jvmFlags>
                   <jvmFlag>-server</jvmFlag>
+                  <!-- NOTE(uoemai): Pass required property from deployment to the entrypoint. -->
+                  <jvmFlag>-Dsecrets.bundle.filename=${secrets.bundle.filename}</jvmFlag>
                   <jvmFlag>-Djava.awt.headless=true</jvmFlag>
                   <jvmFlag>-Djdk.nio.maxCachedBufferSize=262144</jvmFlag>
                   <jvmFlag>-Dlog4j2.formatMsgNoLookups=true</jvmFlag>
@@ -679,6 +682,11 @@
                   <jvmFlag>-XX:+HeapDumpOnOutOfMemoryError</jvmFlag>
                   <jvmFlag>-XX:HeapDumpPath=/tmp/heapdump.bin</jvmFlag>
                 </jvmFlags>
+                <!-- NOTE(uoemai): Pass required arguments to start the server. -->
+                <args>
+                  <arg>server</arg>
+                  <arg>/usr/share/signal/${env}.yml</arg>
+                </args>
                 <ports>
                   <port>8080</port>
                 </ports>
