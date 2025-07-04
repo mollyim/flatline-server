@@ -402,6 +402,8 @@
                                 <ports>
                                     <port>8080</port>
                                 </ports>
+                                <!-- NOTE(uoemai): Timestamp container image. -->
+                                <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
                             </container>
                             <extraDirectories>
                                 <paths>
