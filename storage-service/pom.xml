@@ -365,7 +365,12 @@
                             <execution>
                                 <phase>package</phase>
                                 <goals>
-                                    <goal>build</goal>
+                                    <!--
+                                        NOTE(uoemai): For development, push image to the local Docker daemon.
+                                        Original:
+                                        <goal>build</goal>
+                                    -->
+		                    <goal>dockerBuild</goal>
                                 </goals>
                             </execution>
                         </executions>
