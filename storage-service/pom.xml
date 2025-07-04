@@ -366,7 +366,7 @@
                                 <phase>package</phase>
                                 <goals>
                                     <!-- 
-                                        NOTE(uoemai): For development, store image locally in the Docker daemon.
+                                        NOTE(uoemai): For development, push image to the local Docker daemon.
                                         Original:
                                         <goal>build</goal>
                                     -->
