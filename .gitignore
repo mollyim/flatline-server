@@ -8,12 +8,14 @@ config/production.yml
 config/federated.yml
 config/staging.yml
 config/testing.yml
-config/deploy.properties
+# NOTE(uoemai): Commit deploy properties files during development.
+# config/deploy.properties
 /service/config/production.yml
 /service/config/federated.yml
 /service/config/staging.yml
 /service/config/testing.yml
-/service/config/deploy.properties
+# NOTE(uoemai): Commit deploy properties files during development.
+# /service/config/deploy.properties
 /service/dependency-reduced-pom.xml
 .java-version
 .opsmanage
@@ -29,3 +31,6 @@ deployer.log
 .classpath
 .settings
 .DS_Store
+.vscode
+*.swp
+*.swo
