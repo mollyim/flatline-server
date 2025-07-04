@@ -1,5 +1,6 @@
 /.idea
-/config
+# NOTE(uoemai): Commit configuration files to support development.
+# /config
 /target
 *.iml
 .classpath
