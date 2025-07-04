@@ -18,7 +18,7 @@ For the following commands to succeed, ensure that `JAVA_HOME` points to a valid
 
 #### Server
 
-Testing requires the [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
+Testing the server requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
 
 ```bash
 ./mvnw clean test
@@ -32,7 +32,8 @@ Testing requires the [FoundationDB client](https://apple.github.io/foundationdb/
 
 ### Building
 
-In addition to the JAR artifacts, this stage will build container images, which will be stored locally.
+In addition to the JAR artifacts, this stage will build and locally store container images with 
+[Jib](https://github.com/GoogleContainerTools/jib).
 
 #### Server
 
@@ -45,6 +46,8 @@ In addition to the JAR artifacts, this stage will build container images, which 
 ```bash
 ./mvnw -f storage-service/pom.xml clean package -Pdocker-deploy -Denv=dev -DskipTests
 ```
+
+The `env` property is used as a prefix to fetch the relevant configuration files from `storage-service/config`.
 
 ### Running
 
