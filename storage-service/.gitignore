@@ -1,0 +1,10 @@
+/.idea
+# NOTE(uoemai): Commit configuration files during development.
+# /config
+/target
+*.iml
+.classpath
+.settings
+.project
+.DS_Store
+.java-version
