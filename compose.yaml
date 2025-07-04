@@ -21,12 +21,12 @@ services:
       - /usr/share/signal/sample.yml # TODO(uoemai): Understand why this argument is not added in Jib.
     # Use this section to overwrite configuration files without rebuilding the container image.
     # volumes:
-    #   - ../service/config/sample.yml:/usr/share/signal/sample.yml
-    #   - ../service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
+    #   - service/config/sample.yml:/usr/share/signal/sample.yml
+    #   - service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
   storage-service:
     container_name: flatline-storage-service
     image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Use local image from the Docker daemon.
     # Use this section to overwrite configuration files without rebuilding the container image.
     # volumes:
-    #   - ../storage-service/src/main/resources/config/dev.yml:/usr/share/signal/dev.yml 
+    #   - storage-service/src/main/resources/config/dev.yml:/usr/share/signal/dev.yml
