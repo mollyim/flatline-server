@@ -60,8 +60,8 @@ public class StorageService extends Application<StorageServiceConfiguration> {
   public void initialize(Bootstrap<StorageServiceConfiguration> bootstrap) {
     bootstrap.setConfigurationSourceProvider(
         new SubstitutingSourceProvider(
-            new ResourceConfigurationSourceProvider(),
-            new EnvironmentVariableSubstitutor(false, true))
+            bootstrap.getConfigurationSourceProvider(),
+            new EnvironmentVariableSubstitutor(true, false))
     );
   }
 
