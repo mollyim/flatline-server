@@ -366,7 +366,7 @@
                                 <phase>package</phase>
                                 <goals>
                                     <!--
-                                        NOTE(uoemai): For development, push image to the local Docker daemon.
+                                        FLT(uoemai): For development, push image to the local Docker daemon.
                                         Original:
                                         <goal>build</goal>
                                     -->
@@ -402,7 +402,7 @@
                                 <ports>
                                     <port>8080</port>
                                 </ports>
-                                <!-- NOTE(uoemai): Timestamp container image. -->
+                                <!-- FLT(uoemai): Timestamp container image. -->
                                 <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
                             </container>
                             <extraDirectories>

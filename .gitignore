@@ -9,13 +9,13 @@ config/production.yml
 config/federated.yml
 config/staging.yml
 config/testing.yml
-# NOTE(uoemai): Commit deploy properties files to support development.
+# FLT(uoemai): Commit deploy properties files to support development.
 # config/deploy.properties
 /service/config/production.yml
 /service/config/federated.yml
 /service/config/staging.yml
 /service/config/testing.yml
-# NOTE(uoemai): Commit deploy properties files to support development.
+# FLT(uoemai): Commit deploy properties files to support development.
 # /service/config/deploy.properties
 /service/dependency-reduced-pom.xml
 .java-version

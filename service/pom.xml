@@ -643,7 +643,7 @@
                 <phase>deploy</phase>
                 <goals>
                   <!--
-                      NOTE(uoemai): For development, push image to the local Docker daemon.
+                      FLT(uoemai): For development, push image to the local Docker daemon.
                       Original:
                       <goal>build</goal>
                   -->
@@ -666,14 +666,14 @@
                 </platforms>
               </from>
               <to>
-                  <!-- NOTE(uoemai): Add environment suffix. -->
+                  <!-- FLT(uoemai): Add environment suffix to image tag. -->
                   <image>${docker.repo}:${project.version}-${env}</image>
               </to>
               <container>
                 <mainClass>org.whispersystems.textsecuregcm.WhisperServerService</mainClass>
                 <jvmFlags>
                   <jvmFlag>-server</jvmFlag>
-                  <!-- NOTE(uoemai): Pass required property from deployment to the entrypoint. -->
+                  <!-- FLT(uoemai): Pass required property from deployment to the entrypoint. -->
                   <jvmFlag>-Dsecrets.bundle.filename=${secrets.bundle.filename}</jvmFlag>
                   <jvmFlag>-Djava.awt.headless=true</jvmFlag>
                   <jvmFlag>-Djdk.nio.maxCachedBufferSize=262144</jvmFlag>
@@ -682,7 +682,7 @@
                   <jvmFlag>-XX:+HeapDumpOnOutOfMemoryError</jvmFlag>
                   <jvmFlag>-XX:HeapDumpPath=/tmp/heapdump.bin</jvmFlag>
                 </jvmFlags>
-                <!-- NOTE(uoemai): Pass required arguments to start the server. -->
+                <!-- FLT(uoemai): Pass required arguments to start the server. -->
                 <args>
                   <arg>server</arg>
                   <arg>/usr/share/signal/${env}.yml</arg>
