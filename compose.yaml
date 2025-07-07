@@ -2,7 +2,7 @@ services:
   server:
     container_name: flatline-server
     image: flatline-server:0.0.0-dirty-SNAPSHOT-dev
-    pull_policy: never # Only use a local container image..
+    pull_policy: never # Only use a local container image.
     # Use this section to overwrite configuration files without rebuilding the container image.
     # volumes:
     #   - service/config/dev.yml:/usr/share/signal/dev.yml
