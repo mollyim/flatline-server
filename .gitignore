@@ -9,12 +9,14 @@ config/production.yml
 config/federated.yml
 config/staging.yml
 config/testing.yml
-config/deploy.properties
+# FLT(uoemai): Commit deploy properties files to support development.
+# config/deploy.properties
 /service/config/production.yml
 /service/config/federated.yml
 /service/config/staging.yml
 /service/config/testing.yml
-/service/config/deploy.properties
+# FLT(uoemai): Commit deploy properties files to support development.
+# /service/config/deploy.properties
 /service/dependency-reduced-pom.xml
 .java-version
 .opsmanage
@@ -30,3 +32,6 @@ deployer.log
 .classpath
 .settings
 .DS_Store
+.vscode
+*.swp
+*.swo
