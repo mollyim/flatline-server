@@ -316,9 +316,9 @@ backupsZkConfig:
   serverSecret: secret://backupsZkConfig.serverSecret
 
 dynamicConfig:
-  s3Region: a-region
-  s3Bucket: a-bucket
-  objectKey: dynamic-config.yaml
+  s3Region: test
+  s3Bucket: flatline-server-dynamic-config
+  objectKey: dev.yml
   maxSize: 100000
   refreshInterval: PT10S
 
