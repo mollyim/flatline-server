@@ -16,6 +16,8 @@
     <groupId>io.micronaut.platform</groupId>
     <artifactId>micronaut-parent</artifactId>
     <version>4.7.6</version>
+    <!-- FLT(uoemai): Prevent traversing when looking for a parent project. -->
+    <relativePath/>
   </parent>
 
   <properties>
@@ -506,16 +508,31 @@
         <groupId>com.google.cloud.tools</groupId>
         <artifactId>jib-maven-plugin</artifactId>
         <version>${jib-maven-plugin.version}</version>
+        <!-- FLT(uoemai): Create container image when packaging. -->
+        <executions>
+            <execution>
+                <phase>package</phase>
+                <goals>
+	            <goal>dockerBuild</goal>
+                </goals>
+            </execution>
+        </executions>
         <configuration>
           <from>
             <image>eclipse-temurin@sha256:${docker.image.sha256}</image>
           </from>
-
+          <!-- FLT(uoemai): Tag container image. -->
+          <to>
+              <image>${docker.repo}:${project.version}-${env}</image>
+          </to>
           <container>
             <jvmFlags>
               <jvmFlag>-XX:MaxRAMPercentage=75</jvmFlag>
+              <!-- FLT(uoemai): Run the service in development mode. -->
+              <jvmFlag>-Dmicronaut.environments=dev</jvmFlag>
             </jvmFlags>
-
+            <!-- FLT(uoemai): Timestamp container image. -->
+            <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
             <!-- Because we have two executable classes (the service itself and the CLI), we need to specify which
             should be the entrypoint for Docker images -->
             <mainClass>org.signal.registration.Application</mainClass>
