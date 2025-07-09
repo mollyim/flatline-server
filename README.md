@@ -30,6 +30,12 @@ Testing the server requires a [FoundationDB client](https://apple.github.io/foun
 ./mvnw -f storage-service/pom.xml clean test
 ```
 
+#### Registration Service
+
+```bash
+./mvnw -f registration-service/pom.xml clean test
+```
+
 ### Building
 
 In addition to the JAR artifacts, this stage will build and locally store container images with
@@ -48,6 +54,14 @@ In addition to the JAR artifacts, this stage will build and locally store contai
 ```
 
 The `env` property is used as a prefix to fetch the relevant configuration files from `storage-service/config`.
+
+#### Registration Service
+
+```bash
+./mvnw -f registration-service/pom.xml clean package -Ddocker.repo=flatline-registration-service -Denv=dev -DskipTests
+```
+
+As configured for this prototype, the verification code is always the last six digits of the phone number.
 
 ### Running
 
