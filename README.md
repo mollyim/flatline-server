@@ -1,5 +1,9 @@
 # 🚧 Work in Progress 🚧
 
+Even in the `main` branch, resources from this repository are unstable in order to facilitate development.
+
+During development, several features will be disabled or insecurely implemented. Do not run this in production.
+
 # Flatline Server
 
 **Flatline Server** is a server prototype to which Signal-compatible clients can connect.
