@@ -43,6 +43,7 @@ metrics:
 tlsKeyStore:
   password: secret://tlsKeyStore.password
 
+# FLT(uoemai): All forms of payment are disabled in the prototype.
 stripe:
   apiKey: secret://stripe.apiKey
   idempotencyKeyGenerator: secret://stripe.idempotencyKeyGenerator
@@ -55,6 +56,7 @@ stripe:
     SEPA_DEBIT:
       - eur
 
+# FLT(uoemai): All forms of payment are disabled in the prototype.
 braintree:
   merchantId: unset
   publicKey: unset
@@ -75,12 +77,14 @@ braintree:
         "credential": "configuration"
       }
 
+# FLT(uoemai): All forms of payment are disabled in the prototype.
 googlePlayBilling:
   credentialsJson: secret://googlePlayBilling.credentialsJson
   packageName: package.name
   applicationName: test
   productIdToLevel: {}
 
+# FLT(uoemai): All forms of payment are disabled in the prototype.
 appleAppStore:
   env: SANDBOX
   bundleId: bundle.name
@@ -197,6 +201,7 @@ directoryV2:
     userAuthenticationTokenSharedSecret: secret://directoryV2.client.userAuthenticationTokenSharedSecret
     userIdTokenSharedSecret: secret://directoryV2.client.userIdTokenSharedSecret
 
+# Secure value recovery is disabled in the prototype.
 svr2:
   uri: svr2.example.com
   userAuthenticationTokenSharedSecret: secret://svr2.userAuthenticationTokenSharedSecret
@@ -241,14 +246,18 @@ tus:
   uploadUri: https://example.org/upload
   userAuthenticationTokenSharedSecret: secret://tus.userAuthenticationTokenSharedSecret
 
-apn: # Apple Push Notifications configuration
+# FLT(uoemai): Notification providers are replaced by a dummy logger during development.
+# Apple Push Notifications configuration
+apn:
   sandbox: true
   bundleId: com.example.textsecuregcm
   keyId: secret://apn.keyId
   teamId: secret://apn.teamId
   signingKey: secret://apn.signingKey
 
-fcm: # FCM configuration
+# FLT(uoemai): Notification providers are replaced by a dummy logger during development.
+# FCM configuration
+fcm:
   credentials: secret://fcm.credentials
 
 cdn:
@@ -405,6 +414,7 @@ registrationService:
   collationKeySalt: secret://registrationService.collationKeySalt
   registrationCaCertificate: irrelenvat # Uses insecure channel during development.
 
+# Key transparency is disabled in the prototype.
 keyTransparencyService:
   host: kt.example.com
   port: 443
