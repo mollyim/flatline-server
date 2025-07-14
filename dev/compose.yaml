@@ -10,9 +10,9 @@ services:
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
     # Use this section to overwrite configuration files without rebuilding the container image.
     volumes:
-      # - ./service/config/dev.yml:/usr/share/signal/dev.yml
-      # - ./service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
-      - ./dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
+      # - ../service/config/dev.yml:/usr/share/signal/dev.yml
+      # - ../service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
+      - ../dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
     depends_on:
       localstack:
         condition: service_healthy
@@ -28,7 +28,7 @@ services:
       - AWS_REGION=test
     # Use this section to overwrite configuration files without rebuilding the container image.
     # volumes:
-    #   - storage-service/src/main/resources/config/dev.yml:/usr/share/signal/dev.yml
+    #   - ../storage-service/src/main/resources/config/dev.yml:/usr/share/signal/dev.yml
   registration-service:
     container_name: flatline-registration-service
     image: flatline-registration-service:0.0.0-dirty-SNAPSHOT-dev
@@ -54,8 +54,8 @@ services:
       - DISABLE_EVENTS=1
     volumes:
       - dev-localstack-data:/var/lib/localstack
-      - ./dev/localstack:/etc/localstack/init/ready.d
-      - ./service/config/dynamic/dev.yml:/tmp/dev.yml
+      - ../dev/localstack:/etc/localstack/init/ready.d
+      - ../service/config/dynamic/dev.yml:/tmp/dev.yml
   redis-cluster:
     container_name: flatline-redis-cluster
     image: grokzen/redis-cluster:6.2.14

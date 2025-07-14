@@ -2,7 +2,9 @@
 
 Even in the `main` branch, resources from this repository are unstable in order to facilitate development.
 
-During development, several features will be disabled or insecurely implemented. Do not run this in production.
+During development, several features will be disabled or insecurely implemented.
+
+Do not run this in production environments.
 
 # Flatline Server
 
@@ -62,15 +64,16 @@ The `env` property is used as a prefix to fetch the relevant configuration files
 #### Registration Service
 
 ```bash
-./mvnw -f registration-service/pom.xml clean package -Ddocker.repo=flatline-registration-service -Denv=dev -DskipTests
+./mvnw -f registration-service/pom.xml clean package \
+  -Ddocker.repo=flatline-registration-service -Denv=dev -DskipTests
 ```
 
 As configured for this prototype, the verification code is always the last six digits of the phone number.
 
 ### Running
 
-The `compose.yaml` file will deploy the containers built in the previous stage for local testing.
+The `dev/compose.yaml` file will deploy the containers built in the previous stage for local testing with Docker.
 
 ```bash
-docker compose up
+docker compose -f dev/compose.yaml up
 ```
