@@ -67,6 +67,13 @@ services:
       retries: 10
     volumes:
       - dev-redis-data:/redis-data
+  tus:
+    # Original implementation: https://github.com/signalapp/tus-server
+    container_name: flatline-tus
+    image: ghcr.io/tus/tusd:v2.8.0
+    ports:
+      - 8080:8080
+    command: []
 volumes:
   dev-localstack-data:
   dev-redis-data:
