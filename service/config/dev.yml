@@ -243,7 +243,7 @@ gcpAttachments: # GCP Storage configuration
   rsaSigningKey: secret://gcpAttachments.rsaSigningKey
 
 tus:
-  uploadUri: https://example.org/upload
+  uploadUri: http://flatline-tus/files
   userAuthenticationTokenSharedSecret: secret://tus.userAuthenticationTokenSharedSecret
 
 # FLT(uoemai): Notification providers are replaced by a dummy logger during development.
