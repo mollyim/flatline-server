@@ -9,9 +9,10 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
     # Use this section to overwrite configuration files without rebuilding the container image.
-    # volumes:
-    #   - service/config/dev.yml:/usr/share/signal/dev.yml
-    #   - service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
+    volumes:
+      # - ./service/config/dev.yml:/usr/share/signal/dev.yml
+      # - ./service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
+      - ./dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
     depends_on:
       localstack:
         condition: service_healthy
@@ -53,7 +54,7 @@ services:
       - DISABLE_EVENTS=1
     volumes:
       - dev-localstack-data:/var/lib/localstack
-      - ./localstack:/etc/localstack/init/ready.d
+      - ./dev/localstack:/etc/localstack/init/ready.d
       - ./service/config/dynamic/dev.yml:/tmp/dev.yml
   redis-cluster:
     container_name: flatline-redis-cluster
