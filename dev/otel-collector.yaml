@@ -1,0 +1,23 @@
+receivers:
+  statsd:
+    endpoint: 0.0.0.0:8125
+processors:
+  batch:
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+    response_body:
+      healthy: OK
+      unhealthy: KO
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [statsd]
+      processors: [batch]
+      exporters:
+        - prometheus # Use "debug" for terminal output.

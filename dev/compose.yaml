@@ -20,6 +20,8 @@ services:
         condition: service_healthy
       registration-service:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
   storage-service:
     container_name: flatline-storage-service
     image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
@@ -75,6 +77,26 @@ services:
     ports:
       - 8080:8080
     command: []
+  otel-collector:
+    container_name: flatline-otel-collector
+    image: otel/opentelemetry-collector-contrib:0.129.1
+    command: [ "--config=/etc/otel-collector.yaml" ]
+    expose:
+      - 8125 # DogStatsD
+      - 13133 # Healthcheck
+    # No healthcheck, as this image has no other binaries.
+    volumes:
+      - ../dev/otel-collector.yaml:/etc/otel-collector.yaml
+  prometheus:
+    container_name: flatline-prometheus
+    image: prom/prometheus:v3.4.2
+    ports:
+      - 9090:9090
+    volumes:
+      - ../dev/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      otel-collector:
+        condition: service_started
 volumes:
   dev-localstack-data:
   dev-redis-data:
