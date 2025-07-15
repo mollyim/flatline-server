@@ -4,7 +4,7 @@ services:
     image: flatline-server:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Only use a local container image.
     environment:
-      - AWS_REGION=eu-west-1
+      - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
@@ -31,7 +31,7 @@ services:
     image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Only use a local container image.
     environment:
-      - AWS_REGION=eu-west-1
+      - AWS_REGION=us-east-1
       - HTTP_HOST=0.0.0.0
       - HTTP_PORT=10080
       - ADMIN_HOST=0.0.0.0
@@ -61,6 +61,7 @@ services:
       interval: 2s
       timeout: 1s
       retries: 10
+      start_period: 30s
     expose:
       - 4566 # API
     environment:
