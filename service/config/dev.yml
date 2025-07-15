@@ -23,7 +23,7 @@ metrics:
         - "env:staging"
         - "service:chat"
       udpTransport:
-        statsdHost: localhost
+        statsdHost: flatline-otel-collector
         port: 8125
       excludesAttributes:
         - m1_rate
@@ -277,7 +277,7 @@ cdn3StorageManager:
 
 dogstatsd:
   environment: dev
-  host: 127.0.0.1
+  host: flatline-otel-collector
 
 unidentifiedDelivery:
   certificate: CgIIAQ==
