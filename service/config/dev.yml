@@ -106,7 +106,7 @@ deviceCheck:
   backupRedemptionLevel: 201
 
 dynamoDbClient:
-  region: us-west-2 # AWS Region
+  region: us-west-1 # AWS Region
 
 dynamoDbTables:
   accounts:
@@ -325,7 +325,7 @@ backupsZkConfig:
   serverSecret: secret://backupsZkConfig.serverSecret
 
 dynamicConfig:
-  s3Region: test
+  s3Region: eu-west-1
   s3Bucket: flatline-server-dynamic-config
   objectKey: dev.yml
   maxSize: 100000

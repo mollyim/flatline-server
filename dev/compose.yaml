@@ -4,15 +4,18 @@ services:
     image: flatline-server:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Only use a local container image.
     environment:
-      - AWS_REGION=test
+      - AWS_REGION=eu-west-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
-    # Use this section to overwrite configuration files without rebuilding the container image.
+    ports:
+      - 8080:8080 # Application
+      - 8081:8081 # Admin
     volumes:
-      # - ../service/config/dev.yml:/usr/share/signal/dev.yml
-      # - ../service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
       - ../dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
+      # Overwrite configuration files in container image.
+      - ../service/config/dev.yml:/usr/share/signal/dev.yml
+      - ../service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
     depends_on:
       localstack:
         condition: service_healthy
@@ -27,10 +30,10 @@ services:
     image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Only use a local container image.
     environment:
-      - AWS_REGION=test
-    # Use this section to overwrite configuration files without rebuilding the container image.
-    # volumes:
-    #   - ../storage-service/src/main/resources/config/dev.yml:/usr/share/signal/dev.yml
+      - AWS_REGION=eu-west-1
+    volumes:
+      # Overwrite configuration files in container image.
+      - ../storage-service/config/dev.yml:/usr/share/signal/dev.yml
   registration-service:
     container_name: flatline-registration-service
     image: flatline-registration-service:0.0.0-dirty-SNAPSHOT-dev
@@ -40,8 +43,8 @@ services:
       interval: 2s
       timeout: 1s
       retries: 10
-    ports:
-      - 50051:50051
+    expose:
+      - 50051 # API
   localstack:
     container_name: flatline-localstack
     image: localstack/localstack:4.6.0
@@ -50,8 +53,8 @@ services:
       interval: 2s
       timeout: 1s
       retries: 10
-    ports:
-      - 4566:4566
+    expose:
+      - 4566 # API
     environment:
       - DISABLE_EVENTS=1
     volumes:
@@ -61,8 +64,8 @@ services:
   redis-cluster:
     container_name: flatline-redis-cluster
     image: grokzen/redis-cluster:6.2.14
-    ports:
-      - 7000-7002:7000-7002
+    expose:
+      - 7000 # Redis Cluster
     healthcheck:
       test: [ CMD-SHELL, "redis-cli -p 7000 cluster info | grep ^cluster_state:ok" ]
       interval: 2s
@@ -74,8 +77,8 @@ services:
     # Original implementation: https://github.com/signalapp/tus-server
     container_name: flatline-tus
     image: ghcr.io/tus/tusd:v2.8.0
-    ports:
-      - 8080:8080
+    expose:
+      - 8080 # tusd
     command: []
   otel-collector:
     container_name: flatline-otel-collector
@@ -91,7 +94,7 @@ services:
     container_name: flatline-prometheus
     image: prom/prometheus:v3.4.2
     ports:
-      - 9090:9090
+      - 9090:9090 # Prometheus UI
     volumes:
       - ../dev/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
