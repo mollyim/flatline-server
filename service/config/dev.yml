@@ -106,29 +106,29 @@ deviceCheck:
   backupRedemptionLevel: 201
 
 dynamoDbClient:
-  region: us-west-1 # AWS Region
+  region: us-east-1 # AWS Region
 
 dynamoDbTables:
   accounts:
-    tableName: Example_Accounts
+    tableName: Accounts
     phoneNumberTableName: Example_Accounts_PhoneNumbers
     phoneNumberIdentifierTableName: Example_Accounts_PhoneNumberIdentifiers
     usernamesTableName: Example_Accounts_Usernames
     usedLinkDeviceTokensTableName: Example_Accounts_UsedLinkDeviceTokens
   appleDeviceChecks:
-    tableName: Example_AppleDeviceChecks
+    tableName: AppleDeviceChecks
   appleDeviceCheckPublicKeys:
-    tableName: Example_AppleDeviceCheckPublicKeys
+    tableName: AppleDeviceCheckPublicKeys
   backups:
-    tableName: Example_Backups
+    tableName: Backups
   clientReleases:
-    tableName: Example_ClientReleases
+    tableName: ClientReleases
   deletedAccounts:
-    tableName: Example_DeletedAccounts
+    tableName: DeletedAccounts
   deletedAccountsLock:
-    tableName: Example_DeletedAccountsLock
+    tableName: DeletedAccountsLock
   issuedReceipts:
-    tableName: Example_IssuedReceipts
+    tableName: IssuedReceipts
     expiration: P30D # Duration of time until rows expire
     generator: abcdefg12345678= # random base64-encoded binary sequence
     maxIssuedReceiptsPerPaymentId:
@@ -137,52 +137,52 @@ dynamoDbTables:
       GOOGLE_PLAY_BILLING: 1
       APPLE_APP_STORE: 1
   ecKeys:
-    tableName: Example_Keys
+    tableName: Keys
   ecSignedPreKeys:
-    tableName: Example_EC_Signed_Pre_Keys
+    tableName: EC_Signed_Pre_Keys
   pqKeys:
-    tableName: Example_PQ_Keys
+    tableName: PQ_Keys
   pagedPqKeys:
-    tableName: Example_PQ_Paged_Keys
+    tableName: PQ_Paged_Keys
   pqLastResortKeys:
-    tableName: Example_PQ_Last_Resort_Keys
+    tableName: PQ_Last_Resort_Keys
   messages:
-    tableName: Example_Messages
+    tableName: Messages
     expiration: P30D # Duration of time until rows expire
   onetimeDonations:
-    tableName: Example_OnetimeDonations
+    tableName: OnetimeDonations
     expiration: P90D
   phoneNumberIdentifiers:
-    tableName: Example_PhoneNumberIdentifiers
+    tableName: PhoneNumberIdentifiers
   profiles:
-    tableName: Example_Profiles
+    tableName: Profiles
   pushChallenge:
-    tableName: Example_PushChallenge
+    tableName: PushChallenge
   pushNotificationExperimentSamples:
-    tableName: Example_PushNotificationExperimentSamples
+    tableName: PushNotificationExperimentSamples
   redeemedReceipts:
-    tableName: Example_RedeemedReceipts
+    tableName: RedeemedReceipts
     expiration: P30D # Duration of time until rows expire
   registrationRecovery:
-    tableName: Example_RegistrationRecovery
+    tableName: RegistrationRecovery
     expiration: P300D # Duration of time until rows expire
   remoteConfig:
-    tableName: Example_RemoteConfig
+    tableName: RemoteConfig
   reportMessage:
-    tableName: Example_ReportMessage
+    tableName: ReportMessage
   scheduledJobs:
-    tableName: Example_ScheduledJobs
+    tableName: ScheduledJobs
     expiration: P7D
   subscriptions:
-    tableName: Example_Subscriptions
+    tableName: Subscriptions
   clientPublicKeys:
-    tableName: Example_ClientPublicKeys
+    tableName: ClientPublicKeys
   verificationSessions:
-    tableName: Example_VerificationSessions
+    tableName: VerificationSessions
 
 pagedSingleUseKEMPreKeyStore:
-  bucket: preKeyBucket # S3 Bucket name
-  region: us-west-2    # AWS region
+  bucket: flatline-server-pre-key-store # S3 Bucket name
+  region: us-east-1                     # AWS region
 
 cacheCluster: # Redis server configuration for cache cluster
   configurationUri: redis://flatline-redis-cluster:7000/
@@ -265,7 +265,7 @@ cdn:
   credentials:
     accessKeyId: secret://cdn.accessKey
     secretAccessKey: secret://cdn.accessSecret
-  region: us-west-2  # AWS region
+  region: us-east-1  # AWS region
 
 cdn3StorageManager:
   baseUri: https://storage-manager.example.com
@@ -325,7 +325,7 @@ backupsZkConfig:
   serverSecret: secret://backupsZkConfig.serverSecret
 
 dynamicConfig:
-  s3Region: eu-west-1
+  s3Region: us-east-1
   s3Bucket: flatline-server-dynamic-config
   objectKey: dev.yml
   maxSize: 100000

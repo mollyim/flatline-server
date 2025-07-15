@@ -3,3 +3,5 @@ set -e
 
 awslocal s3 mb s3://flatline-server-dynamic-config
 awslocal s3 cp /tmp/dev.yml s3://flatline-server-dynamic-config/dev.yml
+
+awslocal s3 mb s3://flatline-server-pre-key-store
