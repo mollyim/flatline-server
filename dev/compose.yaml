@@ -9,6 +9,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
       - SIGNAL_DISABLE_LOGSTASH_TCP_SOCKET_APPENDER=1
+      - BIGTABLE_EMULATOR_HOST=flatline-bigtable:8086
     ports:
       - 8080:8080 # Application
       - 8081:8081 # Administration
@@ -26,6 +27,8 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+      bigtable:
+        condition: service_healthy
   storage-service:
     container_name: flatline-storage-service
     image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
@@ -36,12 +39,16 @@ services:
       - HTTP_PORT=10080
       - ADMIN_HOST=0.0.0.0
       - ADMIN_HTTP_PORT=10081
+      - BIGTABLE_EMULATOR_HOST=flatline-bigtable:8086
     expose:
       - 10080 # Application
       - 10081 # Administration
     volumes:
       # Overwrite configuration files in container image.
       - ../storage-service/config/dev.yml:/usr/share/signal/dev.yml
+    depends_on:
+      bigtable:
+        condition: service_healthy
   registration-service:
     container_name: flatline-registration-service
     image: flatline-registration-service:0.0.0-dirty-SNAPSHOT-dev
@@ -109,6 +116,20 @@ services:
     depends_on:
       otel-collector:
         condition: service_started
+  bigtable:
+    container_name: flatline-bigtable
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:489.0.0-emulators
+    command: [ "/bin/bash", "-c", "gcloud beta emulators bigtable start --host-port=0.0.0.0:8086" ]
+    environment:
+      - BIGTABLE_EMULATOR_HOST=localhost:8086
+    expose:
+      - 8086 # Bigtable
+    healthcheck:
+      test: [ CMD-SHELL, "timeout 1s bash -c '</dev/tcp/localhost/8086' || exit 1" ]
+      interval: 1s
+      timeout: 1s
+      retries: 5
+      start_period: 5s
 volumes:
   dev-localstack-data:
   dev-redis-data:
