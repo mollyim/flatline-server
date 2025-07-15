@@ -8,6 +8,7 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
+      - SIGNAL_DISABLE_LOGSTASH_TCP_SOCKET_APPENDER=1
     ports:
       - 8080:8080 # Application
       - 8081:8081 # Administration
