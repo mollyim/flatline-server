@@ -119,7 +119,8 @@ public class StorageService extends Application<StorageServiceConfiguration> {
 
     new MetricsHttpChannelListener().configure(environment);
 
-    MetricsUtil.registerSystemResourceMetrics(environment);
+    // FLT(uoemai): Remove dependency on Datadog SaaS during development.
+    // MetricsUtil.registerSystemResourceMetrics(environment);
   }
 
   public static void main(String[] argv) throws Exception {
