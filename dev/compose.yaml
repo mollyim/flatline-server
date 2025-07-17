@@ -10,9 +10,9 @@ services:
       - AWS_ENDPOINT_OVERRIDE=http://flatline-localstack:4566
       - SIGNAL_DISABLE_LOGSTASH_TCP_SOCKET_APPENDER=1
       - BIGTABLE_EMULATOR_HOST=flatline-bigtable:8086
-    ports:
-      - 8080:8080 # Application
-      - 8081:8081 # Administration
+    expose:
+      - 8080 # Application
+      - 8081 # Administration
     volumes:
       - ../dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
       # Overwrite configuration files in container image.
@@ -101,7 +101,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.129.1
     command: [ "--config=/etc/otel-collector.yaml" ]
     expose:
-      - 8125 # DogStatsD
+      - 8125 # StatsD
+      - 4317 # OTel gRPC
+      - 4318 # OTel HTTP
       - 13133 # Healthcheck
     # No healthcheck, as this image has no other binaries.
     volumes:
@@ -130,6 +132,22 @@ services:
       timeout: 1s
       retries: 5
       start_period: 5s
+  envoy:
+    container_name: flatline-envoy
+    image: envoyproxy/envoy:v1.34.2
+    ports:
+      - 9901:9901 # Proxy Administration
+      - 8443:8443 # HTTP Proxy Flatline Server
+      - 10443:10443 # HTTP Proxy Flatline Storage Service
+    volumes:
+      - ../dev/envoy/envoy.yml:/etc/envoy/envoy.yaml:ro
+      - ../dev/envoy/localhost.pem:/etc/envoy/localhost.pem:ro
+      - ../dev/envoy/localhost.key:/etc/envoy/localhost.key:ro
+    depends_on:
+      server:
+        condition: service_started
+      storage-service:
+        condition: service_started
 volumes:
   dev-localstack-data:
   dev-redis-data:
