@@ -1,6 +1,12 @@
 receivers:
   statsd:
     endpoint: 0.0.0.0:8125
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
 processors:
   batch:
 exporters:
@@ -17,7 +23,7 @@ service:
   extensions: [health_check]
   pipelines:
     metrics:
-      receivers: [statsd]
+      receivers: [otlp, statsd]
       processors: [batch]
       exporters:
         - prometheus # Use "debug" for terminal output.
