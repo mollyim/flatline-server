@@ -22,9 +22,9 @@ For the following commands to succeed, ensure that `JAVA_HOME` points to a valid
 
 ### Testing
 
-#### Server
+#### Whisper Service
 
-Testing the server requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
+Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
 
 ```bash
 ./mvnw clean test
@@ -47,7 +47,7 @@ Testing the server requires a [FoundationDB client](https://apple.github.io/foun
 In addition to the JAR artifacts, this stage will build and locally store container images with
 [Jib](https://github.com/GoogleContainerTools/jib).
 
-#### Server
+#### Whisper Service
 
 ```bash
 ./mvnw clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
