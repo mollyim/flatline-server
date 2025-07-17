@@ -1,7 +1,7 @@
 services:
-  server:
-    container_name: flatline-server
-    image: flatline-server:0.0.0-dirty-SNAPSHOT-dev
+  whisper-service:
+    container_name: flatline-whisper-service
+    image: flatline-whisper-service:0.0.0-dirty-SNAPSHOT-dev
     pull_policy: never # Only use a local container image.
     environment:
       - AWS_REGION=us-east-1
@@ -137,14 +137,14 @@ services:
     image: envoyproxy/envoy:v1.34.2
     ports:
       - 9901:9901 # Proxy Administration
-      - 8443:8443 # HTTP Proxy Flatline Server
-      - 10443:10443 # HTTP Proxy Flatline Storage Service
+      - 8443:8443 # HTTP Proxy Whisper Service
+      - 10443:10443 # HTTP Proxy Storage Service
     volumes:
       - ../dev/envoy/envoy.yml:/etc/envoy/envoy.yaml:ro
       - ../dev/envoy/localhost.pem:/etc/envoy/localhost.pem:ro
       - ../dev/envoy/localhost.key:/etc/envoy/localhost.key:ro
     depends_on:
-      server:
+      whisper-service:
         condition: service_started
       storage-service:
         condition: service_started

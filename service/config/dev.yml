@@ -181,7 +181,7 @@ dynamoDbTables:
     tableName: VerificationSessions
 
 pagedSingleUseKEMPreKeyStore:
-  bucket: flatline-server-pre-key-store # S3 Bucket name
+  bucket: whisper-service-pre-key-store # S3 Bucket name
   region: us-east-1                     # AWS region
 
 cacheCluster: # Redis server configuration for cache cluster
@@ -326,7 +326,7 @@ backupsZkConfig:
 
 dynamicConfig:
   s3Region: us-east-1
-  s3Bucket: flatline-server-dynamic-config
+  s3Bucket: whisper-service-dynamic-config
   objectKey: dev.yml
   maxSize: 100000
   refreshInterval: PT10S
