@@ -185,16 +185,16 @@ pagedSingleUseKEMPreKeyStore:
   region: us-east-1                     # AWS region
 
 cacheCluster: # Redis server configuration for cache cluster
-  configurationUri: redis://flatline-redis-cluster:7000/
+  configurationUri: redis://flatline-redis-0:6379/
 
 pubsub: # Redis server configuration for pubsub cluster
-  uri: redis://flatline-redis-cluster:7000/
+  uri: redis://flatline-redis-0:6379/
 
 pushSchedulerCluster: # Redis server configuration for push scheduler cluster
-  configurationUri: redis://flatline-redis-cluster:7000/
+  configurationUri: redis://flatline-redis-0:6379/
 
 rateLimitersCluster: # Redis server configuration for rate limiters cluster
-  configurationUri: redis://flatline-redis-cluster:7000/
+  configurationUri: redis://flatline-redis-0:6379/
 
 directoryV2:
   client: # Configuration for interfacing with Contact Discovery Service v2 cluster
@@ -233,7 +233,7 @@ svr2:
 messageCache: # Redis server configuration for message store cache
   persistDelayMinutes: 1
   cluster:
-    configurationUri: redis://flatline-redis-cluster:7000/
+    configurationUri: redis://flatline-redis-0:6379/
 
 gcpAttachments: # GCP Storage configuration
   domain: example.com
