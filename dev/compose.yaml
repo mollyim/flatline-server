@@ -21,7 +21,7 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
-      redis-cluster:
+      redis-0:
         condition: service_healthy
       registration-service:
         condition: service_healthy
@@ -77,18 +77,48 @@ services:
       - dev-localstack-data:/var/lib/localstack
       - ../dev/localstack:/etc/localstack/init/ready.d
       - ../service/config/dynamic/dev.yml:/tmp/dev.yml
-  redis-cluster:
-    container_name: flatline-redis-cluster
-    image: grokzen/redis-cluster:6.2.14
+  redis-0:
+    container_name: flatline-redis-0
+    image: bitnami/redis-cluster:8.0.3
     expose:
-      - 7000 # Redis Cluster
+      - 6379 # Redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_CLUSTER_CREATOR=yes
+      - REDIS_CLUSTER_REPLICAS=0
+      - REDIS_NODES=redis-0 redis-1 redis-2
+    volumes:
+      - dev-redis-0-data:/bitnami
     healthcheck:
-      test: [ CMD-SHELL, "redis-cli -p 7000 cluster info | grep ^cluster_state:ok" ]
+      test: [ CMD-SHELL, "redis-cli cluster info | grep ^cluster_state:ok" ]
       interval: 2s
       timeout: 1s
       retries: 10
+    depends_on:
+      redis-1:
+        condition: service_started
+      redis-2:
+        condition: service_started
+  redis-1:
+    container_name: flatline-redis-1
+    image: bitnami/redis-cluster:8.0.3
+    expose:
+      - 6379 # Redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_NODES=redis-0 redis-1 redis-2
     volumes:
-      - dev-redis-data:/redis-data
+      - dev-redis-1-data:/bitnami
+  redis-2:
+    container_name: flatline-redis-2
+    image: bitnami/redis-cluster:8.0.3
+    expose:
+      - 6379 # Redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_NODES=redis-0 redis-1 redis-2
+    volumes:
+      - dev-redis-2-data:/bitnami
   tus:
     # Original implementation: https://github.com/signalapp/tus-server
     container_name: flatline-tus
@@ -150,4 +180,6 @@ services:
         condition: service_started
 volumes:
   dev-localstack-data:
-  dev-redis-data:
+  dev-redis-0-data:
+  dev-redis-1-data:
+  dev-redis-2-data:
