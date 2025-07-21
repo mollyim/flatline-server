@@ -48,21 +48,6 @@ Resources:
         - AttributeName: PNI
           KeyType: HASH
 
-  AccountsUsernamesTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: Accounts_Usernames
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: N
-          AttributeType: B
-      KeySchema:
-        - AttributeName: N
-          KeyType: HASH
-      TimeToLiveSpecification:
-        AttributeName: TTL
-        Enabled: true
-
   AccountsUsedLinkDeviceTokensTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -76,6 +61,21 @@ Resources:
           KeyType: HASH
       TimeToLiveSpecification:
         AttributeName: E
+        Enabled: true
+
+  AccountsUsernamesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Accounts_Usernames
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: N
+          AttributeType: B
+      KeySchema:
+        - AttributeName: N
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: TTL
         Enabled: true
 
   ClientReleasesTable:
@@ -164,7 +164,7 @@ Resources:
         - AttributeName: DK
           KeyType: RANGE
 
-  EC_Signed_Pre_KeysTable:
+  ECSignedPreKeysTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: EC_Signed_Pre_Keys
@@ -180,7 +180,7 @@ Resources:
         - AttributeName: D
           KeyType: RANGE
 
-  PQ_KeysTable:
+  PQKeysTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: PQ_Keys
@@ -196,7 +196,7 @@ Resources:
         - AttributeName: D
           KeyType: RANGE
 
-  PQ_Paged_KeysTable:
+  PQPagedKeysTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: PQ_Paged_Keys
@@ -212,7 +212,7 @@ Resources:
         - AttributeName: D
           KeyType: RANGE
 
-  PQ_Last_Resort_KeysTable:
+  PQLastResortKeysTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName: PQ_Last_Resort_Keys
