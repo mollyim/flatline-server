@@ -1,10 +1,8 @@
 name: Update Documentation
 
-# FLT(uoemai): Do not generate API documentation automatically during development.
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  # FLT(uoemai): Generate API documentation on demand during development.
+  workflow_dispatch:
  
 jobs:
   build:
