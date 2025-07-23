@@ -111,10 +111,10 @@ dynamoDbClient:
 dynamoDbTables:
   accounts:
     tableName: Accounts
-    phoneNumberTableName: Example_Accounts_PhoneNumbers
-    phoneNumberIdentifierTableName: Example_Accounts_PhoneNumberIdentifiers
-    usernamesTableName: Example_Accounts_Usernames
-    usedLinkDeviceTokensTableName: Example_Accounts_UsedLinkDeviceTokens
+    phoneNumberTableName: Accounts_PhoneNumbers
+    phoneNumberIdentifierTableName: Accounts_PhoneNumberIdentifiers
+    usernamesTableName: Accounts_Usernames
+    usedLinkDeviceTokensTableName: Accounts_UsedLinkDeviceTokens
   appleDeviceChecks:
     tableName: AppleDeviceChecks
   appleDeviceCheckPublicKeys:
