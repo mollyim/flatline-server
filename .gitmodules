@@ -1,0 +1,9 @@
+[submodule "ContactDiscoveryService-Icelake/c/sgx/oram/src/SipHash"]
+	path = ContactDiscoveryService-Icelake/c/SipHash
+	url = https://github.com/veorq/SipHash
+[submodule "ContactDiscoveryService-Icelake/c/noise-c"]
+	path = ContactDiscoveryService-Icelake/c/noise-c
+	url = https://github.com/signalapp/noise-c.git
+[submodule "ContactDiscoveryService-Icelake/c/libsodium"]
+	path = ContactDiscoveryService-Icelake/c/libsodium
+	url = https://github.com/jedisct1/libsodium
