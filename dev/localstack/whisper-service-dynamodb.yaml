@@ -13,6 +13,8 @@ Resources:
           AttributeType: B
         - AttributeName: UL
           AttributeType: B
+        - AttributeName: PNI
+          AttributeType: B
       KeySchema:
         - AttributeName: U
           KeyType: HASH
@@ -20,6 +22,12 @@ Resources:
         - IndexName: ul_to_u
           KeySchema:
             - AttributeName: UL
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: pni_to_u
+          KeySchema:
+            - AttributeName: PNI
               KeyType: HASH
           Projection:
             ProjectionType: ALL
@@ -43,7 +51,7 @@ Resources:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: PNI
-          AttributeType: S
+          AttributeType: B
       KeySchema:
         - AttributeName: PNI
           KeyType: HASH
@@ -106,7 +114,7 @@ Resources:
         - AttributeName: P
           AttributeType: S
         - AttributeName: U
-          AttributeType: S
+          AttributeType: B
       KeySchema:
         - AttributeName: P
           KeyType: HASH
