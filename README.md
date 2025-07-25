@@ -70,6 +70,13 @@ The `env` property is used as a prefix to fetch the relevant configuration files
 
 As configured for this prototype, the verification code is always the last six digits of the phone number.
 
+### Contact Discovery Service
+
+```
+./mvnw -f ContactDiscoveryService-Icelake/pom.xml package \
+  -Dpackaging=docker -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
+```
+
 ### Running
 
 The `dev/compose.yaml` file will deploy the containers built in the previous stage for local testing with Docker.
