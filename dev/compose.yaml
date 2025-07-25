@@ -60,6 +60,14 @@ services:
       retries: 10
     expose:
       - 50051 # API
+  # contact-discovery-service:
+  #   container_name: flatline-contact-discovery-service
+  #   image: flatline-contact-discovery-service:experimental
+  #   pull_policy: never # Only use a local container image.
+  #   environment:
+  #     - _JAVA_OPTIONS="-Dmicronaut.environments=dev"
+  #   expose:
+  #     - 50051 # API
   localstack:
     container_name: flatline-localstack
     image: localstack/localstack:4.6.0

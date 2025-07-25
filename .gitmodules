@@ -1,4 +1,4 @@
-[submodule "ContactDiscoveryService-Icelake/c/sgx/oram/src/SipHash"]
+[submodule "ContactDiscoveryService-Icelake/c/SipHash"]
 	path = ContactDiscoveryService-Icelake/c/SipHash
 	url = https://github.com/veorq/SipHash
 [submodule "ContactDiscoveryService-Icelake/c/noise-c"]
