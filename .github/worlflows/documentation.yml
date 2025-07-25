@@ -1,0 +1,32 @@
+name: Update Documentation
+
+on:
+  # FLT(uoemai): Generate API documentation on demand during development.
+  workflow_dispatch:
+ 
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+      - name: Compile and Build OpenAPI file
+        run: ./mvnw compile
+      - name: Update Documentation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp -r api-doc/target/openapi/signal-server-openapi.yaml /tmp/
+          git config user.email "github@molly.im"
+          git config user.name "Molly Documentation Updater"
+          git fetch origin gh-pages
+          git checkout gh-pages
+          cp /tmp/signal-server-openapi.yaml .
+          git diff --quiet || git commit -a -m "doc: update documentation"
+          git push origin gh-pages -q

@@ -1,0 +1,43 @@
+name: CI 
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - gh-pages
+
+jobs:
+  whisper-service:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 20
+
+    services:
+      foundationdb:
+        # Should be the same as the client version or close behind.
+        image: foundationdb/foundationdb:7.3.62
+        options: --name foundationdb
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'maven'
+        env:
+          # Work around incorrect HOME in runners.
+          # Source: https://github.com/actions/setup-java/issues/356
+          HOME: /root
+      - name: Configure FoundationDB
+        run: docker exec foundationdb /usr/bin/fdbcli --exec 'configure new single memory'
+      - name: Prepare with Maven
+        run: |
+          ./mvnw -e -B -Pexclude-spam-filter clean prepare-package -DskipTests=true
+          cp service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.x86_64.so
+          ldconfig
+      - name: Test & Build
+        run: ./mvnw -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb
+      - name: Build Container Image
+        run: ./mvnw -e -B clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
