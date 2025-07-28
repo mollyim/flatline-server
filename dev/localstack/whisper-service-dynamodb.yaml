@@ -196,12 +196,12 @@ Resources:
       AttributeDefinitions:
         - AttributeName: U
           AttributeType: B
-        - AttributeName: D
-          AttributeType: N
+        - AttributeName: DK
+          AttributeType: B
       KeySchema:
         - AttributeName: U
           KeyType: HASH
-        - AttributeName: D
+        - AttributeName: DK
           KeyType: RANGE
 
   PQPagedKeysTable:
