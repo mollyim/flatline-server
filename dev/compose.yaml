@@ -60,14 +60,15 @@ services:
       retries: 10
     expose:
       - 50051 # API
-  # contact-discovery-service:
-  #   container_name: flatline-contact-discovery-service
-  #   image: flatline-contact-discovery-service:experimental
-  #   pull_policy: never # Only use a local container image.
-  #   environment:
-  #     - _JAVA_OPTIONS="-Dmicronaut.environments=dev"
-  #   expose:
-  #     - 50051 # API
+  contact-discovery-service:
+    container_name: flatline-contact-discovery-service
+    image: flatline-contact-discovery-service:experimental
+    pull_policy: never # Only use a local container image.
+    environment:
+      - _JAVA_OPTIONS="-Dmicronaut.environments=dev"
+      - SGX_MODE=SIM # Run SGX in simulation mode.
+    expose:
+      - 8080  # API
   localstack:
     container_name: flatline-localstack
     image: localstack/localstack:4.6.0
@@ -177,6 +178,7 @@ services:
       - 9901:9901 # Proxy Administration
       - 8443:8443 # HTTP Proxy Whisper Service
       - 10443:10443 # HTTP Proxy Storage Service
+      - 20443:20443 # HTTP Proxy Contact Discovery Service
     volumes:
       - ../dev/envoy/envoy.yml:/etc/envoy/envoy.yaml:ro
       - ../dev/envoy/localhost.pem:/etc/envoy/localhost.pem:ro
