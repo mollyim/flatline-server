@@ -82,6 +82,7 @@ services:
       - 4566 # API
     environment:
       - DISABLE_EVENTS=1
+      # - LS_LOG=debug
     volumes:
       - dev-localstack-data:/var/lib/localstack
       - ../dev/localstack:/etc/localstack/init/ready.d
