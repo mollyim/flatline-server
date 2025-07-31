@@ -27,7 +27,8 @@ For the following commands to succeed, ensure that `JAVA_HOME` points to a valid
 Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
 
 ```bash
-./mvnw clean verify -e -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=\
+./mvnw -f whisper-service/pom.xml clean verify -e \
+-pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=\
 \!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\
 \!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\
 \!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
@@ -85,7 +86,7 @@ In addition to the JAR artifacts, this stage will build and locally store contai
 #### Whisper Service
 
 ```bash
-./mvnw clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
+./mvnw -f whisper-service/pom.xml clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
 ```
 
 #### Storage Service

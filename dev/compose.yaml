@@ -16,8 +16,8 @@ services:
     volumes:
       - ../dev/noise-tunnel-keystore.p12:/usr/share/signal/noise-tunnel-keystore.p12
       # Overwrite configuration files in container image.
-      - ../service/config/dev.yml:/usr/share/signal/dev.yml
-      - ../service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
+      - ../whisper-service/service/config/dev.yml:/usr/share/signal/dev.yml
+      - ../whisper-service/service/config/sample-secrets-bundle.yml:/usr/share/signal/sample-secrets-bundle.yml
     depends_on:
       localstack:
         condition: service_healthy
@@ -86,7 +86,7 @@ services:
     volumes:
       - dev-localstack-data:/var/lib/localstack
       - ../dev/localstack:/etc/localstack/init/ready.d
-      - ../service/config/dynamic/dev.yml:/tmp/dev.yml
+      - ../whisper-service/service/config/dynamic/dev.yml:/tmp/dev.yml
   redis-0:
     container_name: flatline-redis-0
     image: bitnami/redis-cluster:8.0.3
