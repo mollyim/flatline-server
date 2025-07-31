@@ -33,7 +33,9 @@ Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-st
 \!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
 ```
 
-Tests for features that are disabled for the prototype will be excluded.
+Integration tests are excluded as they require an existing environment in which to run.
+
+Tests for features that are disabled for the prototype are be excluded.
 
 #### Storage Service
 
