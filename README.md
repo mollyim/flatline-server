@@ -10,24 +10,22 @@ Do not run this in production environments.
 
 **Flatline Server** is a server prototype to which Signal-compatible clients can connect.
 
-This version is forked from [signal-server](https://github.com/signalapp/Signal-Server).
+It relies on various [components](#components) forked from their original [Signal repositories](https://github.com/signalapp).
 
 ## Components
 
 The Flatline server is composed of multiple services organized in separate directories.
 
-These services are forked from different [Signal repositories](https://github.com/signalapp).
-
-- Whisper Service
+- **Whisper Service**
   - Directory: [whisper-service](whisper-service/)
   - Upstream: https://github.com/signalapp/Signal-Server
-- Storage Service
+- **Storage Service**
   - Directory: [storage-service](storage-service/)
   - Upstream: https://github.com/signalapp/storage-service
-- Registration Service
+- **Registration Service**
   - Directory: [registration-service](registration-service/)
   - Upstream: https://github.com/signalapp/registration-service
-- Contact Discovery Service
+- **Contact Discovery Service**
   - Directory: [contact-discovery-service](contact-discovery-service/)
   - Upstream: https://github.com/signalapp/ContactDiscoveryService-Icelake
 
