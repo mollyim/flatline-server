@@ -51,7 +51,7 @@ make -C ContactDiscoveryService-Icelake/c docker_tests
 make -C ContactDiscoveryService-Icelake/c docker_valgrinds
 ```
 
-To run minimal tests without an Intel SGX enclave:
+To run minimal tests without Intel SGX:
 
 ```bash
 ./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify -Dtest=\
@@ -62,7 +62,7 @@ To run minimal tests without an Intel SGX enclave:
 \!org.signal.cdsi.util.ByteSizeValidatorTest
 ```
 
-To run all tests with an Intel SGX enclave:
+To run all tests with Intel SGX:
 
 ```bash
 # Set up Intel SGX on Ubuntu 22.04.
