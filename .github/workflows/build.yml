@@ -1,10 +1,10 @@
-name: CI 
+name: Build 
 
 on:
   pull_request:
   push:
-    branches-ignore:
-      - gh-pages
+    branches:
+      - main
 
 jobs:
   whisper-service:
@@ -30,6 +30,18 @@ jobs:
           # Work around incorrect HOME in runners.
           # Source: https://github.com/actions/setup-java/issues/356
           HOME: /root
+      - name: Install Docker 
+        run: |
+          apt update
+          apt install -y ca-certificates curl
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+            $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+            tee /etc/apt/sources.list.d/docker.list > /dev/null
+          apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       - name: Configure FoundationDB
         run: docker exec foundationdb /usr/bin/fdbcli --exec 'configure new single memory'
       - name: Prepare with Maven
@@ -38,6 +50,6 @@ jobs:
           cp service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.x86_64.so
           ldconfig
       - name: Test & Build
-        run: ./mvnw -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb
+        run: ./mvnw -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
       - name: Build Container Image
         run: ./mvnw -e -B clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests

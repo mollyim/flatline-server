@@ -27,8 +27,15 @@ For the following commands to succeed, ensure that `JAVA_HOME` points to a valid
 Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
 
 ```bash
-./mvnw clean test
+./mvnw clean verify -e -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=\
+\!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\
+\!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\
+\!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
 ```
+
+Integration tests are excluded as they require an existing environment in which to run.
+
+Tests for features that are disabled for the prototype are be excluded.
 
 #### Storage Service
 
