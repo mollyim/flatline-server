@@ -12,6 +12,27 @@ Do not run this in production environments.
 
 This version is forked from [signal-server](https://github.com/signalapp/Signal-Server).
 
+## Components
+
+The Flatline server is composed of multiple services organized in separate directories.
+
+These services are forked from different [Signal repositories](https://github.com/signalapp).
+
+- Whisper Service
+  - Directory: [whisper-service](whisper-service/)
+  - Upstream: https://github.com/signalapp/Signal-Server
+- Storage Service
+  - Directory: [storage-service](storage-service/)
+  - Upstream: https://github.com/signalapp/storage-service
+- Registration Service
+  - Directory: [registration-service](registration-service/)
+  - Upstream: https://github.com/signalapp/registration-service
+- Contact Discovery Service
+  - Directory: [contact-discovery-service](contact-discovery-service/)
+  - Upstream: https://github.com/signalapp/ContactDiscoveryService-Icelake
+
+Additionally, the Flatline server relies on several other [infrastructure components](https://github.com/mollyim/flatline-server/blob/main/dev/compose.yaml).
+
 ## Development
 
 Testing and building this project relies on [Docker](https://docs.docker.com/engine/install/).
