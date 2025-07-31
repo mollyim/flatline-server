@@ -47,9 +47,9 @@ jobs:
       - name: Prepare with Maven
         run: |
           ./mvnw -e -B -Pexclude-spam-filter clean prepare-package -DskipTests=true
-          cp service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.x86_64.so
+          cp whisper-service/service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.x86_64.so
           ldconfig
       - name: Test & Build
-        run: ./mvnw -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
+        run: ./mvnw -f whisper-service/pom.xml -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
       - name: Build Container Image
-        run: ./mvnw -e -B clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
+        run: ./mvnw -f whisper-service/pom.xml -e -B clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
