@@ -10,7 +10,26 @@ Do not run this in production environments.
 
 **Flatline Server** is a server prototype to which Signal-compatible clients can connect.
 
-This version is forked from [signal-server](https://github.com/signalapp/Signal-Server).
+It relies on various [components](#components) forked from their original [Signal repositories](https://github.com/signalapp).
+
+## Components
+
+The Flatline server is composed of multiple services organized in separate directories.
+
+- **Whisper Service**
+  - Directory: [whisper-service](whisper-service/)
+  - Upstream: https://github.com/signalapp/Signal-Server
+- **Storage Service**
+  - Directory: [storage-service](storage-service/)
+  - Upstream: https://github.com/signalapp/storage-service
+- **Registration Service**
+  - Directory: [registration-service](registration-service/)
+  - Upstream: https://github.com/signalapp/registration-service
+- **Contact Discovery Service**
+  - Directory: [contact-discovery-service](contact-discovery-service/)
+  - Upstream: https://github.com/signalapp/ContactDiscoveryService-Icelake
+
+Additionally, the Flatline server relies on several other [infrastructure components](https://github.com/mollyim/flatline-server/blob/main/dev/compose.yaml).
 
 ## Development
 
@@ -27,7 +46,8 @@ For the following commands to succeed, ensure that `JAVA_HOME` points to a valid
 Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-started-linux.html).
 
 ```bash
-./mvnw clean verify -e -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=\
+./mvnw -f whisper-service/pom.xml clean verify -e \
+-pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=\
 \!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\
 \!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\
 \!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
@@ -54,14 +74,14 @@ Tests for features that are disabled for the prototype are be excluded.
 To test C dependencies:
 
 ```bash
-make -C ContactDiscoveryService-Icelake/c docker_tests
-make -C ContactDiscoveryService-Icelake/c docker_valgrinds
+make -C contact-discovery-service/c docker_tests
+make -C contact-discovery-service/c docker_valgrinds
 ```
 
 To run minimal tests without Intel SGX:
 
 ```bash
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify -Dtest=\
+./mvnw -f contact-discovery-service/pom.xml verify -Dtest=\
 \!org.signal.cdsi.enclave.**,\
 \!org.signal.cdsi.IntegrationTest,\
 \!org.signal.cdsi.JsonMapperInjectionIntegrationTest,\
@@ -73,8 +93,8 @@ To run all tests with Intel SGX:
 
 ```bash
 # Set up Intel SGX on Ubuntu 22.04.
-sudo ./ContactDiscoveryService-Icelake/c/docker/sgx_runtime_libraries.sh
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify
+sudo ./contact-discovery-service/c/docker/sgx_runtime_libraries.sh
+./mvnw -f contact-discovery-service/pom.xml verify
 ```
 
 ### Building
@@ -85,7 +105,7 @@ In addition to the JAR artifacts, this stage will build and locally store contai
 #### Whisper Service
 
 ```bash
-./mvnw clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
+./mvnw -f whisper-service/pom.xml clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
 ```
 
 #### Storage Service
@@ -108,7 +128,7 @@ As configured for this prototype, the verification code is always the last six d
 #### Contact Discovery Service
 
 ```
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml package -Dpackaging=docker \
+./mvnw -f contact-discovery-service/pom.xml package -Dpackaging=docker \
   -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
 ```
 
