@@ -55,14 +55,14 @@ Tests for features that are disabled for the prototype are be excluded.
 To test C dependencies:
 
 ```bash
-make -C ContactDiscoveryService-Icelake/c docker_tests
-make -C ContactDiscoveryService-Icelake/c docker_valgrinds
+make -C contact-discovery-service/c docker_tests
+make -C contact-discovery-service/c docker_valgrinds
 ```
 
 To run minimal tests without Intel SGX:
 
 ```bash
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify -Dtest=\
+./mvnw -f contact-discovery-service/pom.xml verify -Dtest=\
 \!org.signal.cdsi.enclave.**,\
 \!org.signal.cdsi.IntegrationTest,\
 \!org.signal.cdsi.JsonMapperInjectionIntegrationTest,\
@@ -74,8 +74,8 @@ To run all tests with Intel SGX:
 
 ```bash
 # Set up Intel SGX on Ubuntu 22.04.
-sudo ./ContactDiscoveryService-Icelake/c/docker/sgx_runtime_libraries.sh
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify
+sudo ./contact-discovery-service/c/docker/sgx_runtime_libraries.sh
+./mvnw -f contact-discovery-service/pom.xml verify
 ```
 
 ### Building
@@ -109,7 +109,7 @@ As configured for this prototype, the verification code is always the last six d
 #### Contact Discovery Service
 
 ```
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml package -Dpackaging=docker \
+./mvnw -f contact-discovery-service/pom.xml package -Dpackaging=docker \
   -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
 ```
 
