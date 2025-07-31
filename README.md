@@ -42,6 +42,34 @@ Requires a [FoundationDB client](https://apple.github.io/foundationdb/getting-st
 ./mvnw -f registration-service/pom.xml clean test
 ```
 
+#### Contact Discovery Service
+
+To test C dependencies:
+
+```bash
+make -C ContactDiscoveryService-Icelake/c docker_tests
+make -C ContactDiscoveryService-Icelake/c docker_valgrinds
+```
+
+To run minimal tests without an Intel SGX enclave:
+
+```bash
+./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify -Dtest=\
+\!org.signal.cdsi.enclave.**,\
+\!org.signal.cdsi.IntegrationTest,\
+\!org.signal.cdsi.JsonMapperInjectionIntegrationTest,\
+\!org.signal.cdsi.limits.redis.RedisLeakyBucketRateLimiterIntegrationTest,\
+\!org.signal.cdsi.util.ByteSizeValidatorTest
+```
+
+To run all tests with an Intel SGX enclave:
+
+```bash
+# Set up Intel SGX on Ubuntu 22.04.
+sudo ./ContactDiscoveryService-Icelake/c/docker/sgx_runtime_libraries.sh
+./mvnw -f ContactDiscoveryService-Icelake/pom.xml verify
+```
+
 ### Building
 
 In addition to the JAR artifacts, this stage will build and locally store container images with
@@ -70,11 +98,11 @@ The `env` property is used as a prefix to fetch the relevant configuration files
 
 As configured for this prototype, the verification code is always the last six digits of the phone number.
 
-### Contact Discovery Service
+#### Contact Discovery Service
 
 ```
-./mvnw -f ContactDiscoveryService-Icelake/pom.xml package \
-  -Dpackaging=docker -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
+./mvnw -f ContactDiscoveryService-Icelake/pom.xml package -Dpackaging=docker \
+  -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
 ```
 
 ### Running
