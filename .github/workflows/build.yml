@@ -49,8 +49,71 @@ jobs:
           ./mvnw -f whisper-service/pom.xml -e -B -Pexclude-spam-filter clean prepare-package -DskipTests=true
           cp whisper-service/service/target/jib-extra/usr/lib/libfdb_c.x86_64.so /usr/lib/libfdb_c.x86_64.so
           ldconfig
-      - name: Test & Build
+      - name: Test
         # Tests for features disabled in the Flatline prototype are excluded.
         run: ./mvnw -f whisper-service/pom.xml -e -B clean verify -DfoundationDb.serviceContainerName=foundationdb -pl '!integration-tests' -Dsurefire.failIfNoSpecifiedTests=false -Dtest=!org.whispersystems.textsecuregcm.controllers.VerificationControllerTest,\!org.whispersystems.textsecuregcm.controllers.SubscriptionControllerTest,\!org.whispersystems.textsecuregcm.registration.IdentityTokenCallCredentialsTest
       - name: Build Container Image
         run: ./mvnw -f whisper-service/pom.xml -e -B clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
+
+  storage-service:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'maven'
+        env:
+          # Work around incorrect HOME in runners.
+          # Source: https://github.com/actions/setup-java/issues/356
+          HOME: /root
+      - name: Test & Build Container Image
+        run: ./mvnw -e -B -f storage-service/pom.xml clean package -Pdocker-deploy -Denv=dev
+
+  registration-service:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'maven'
+        env:
+          # Work around incorrect HOME in runners.
+          # Source: https://github.com/actions/setup-java/issues/356
+          HOME: /root
+      - name: Test & Build Container Image
+        run: ./mvnw -e -B -f registration-service/pom.xml clean package -Ddocker.repo=flatline-registration-service -Denv=dev
+
+  contact-discovery-service:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'maven'
+        env:
+          # Work around incorrect HOME in runners.
+          # Source: https://github.com/actions/setup-java/issues/356
+          HOME: /root
+      - name: Test
+        # Tests for features disabled in the Flatline prototype are excluded.
+        run: ./mvnw -f contact-discovery-service/pom.xml verify -Dtest=\!org.signal.cdsi.enclave.**,\!org.signal.cdsi.IntegrationTest,\!org.signal.cdsi.JsonMapperInjectionIntegrationTest,\!org.signal.cdsi.limits.redis.RedisLeakyBucketRateLimiterIntegrationTest,\!org.signal.cdsi.util.ByteSizeValidatorTest
+      - name: Build Container Image
+        run: ./mvnw -e -B -f contact-discovery-service/pom.xml package -Dpackaging=docker -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
