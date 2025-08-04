@@ -32,6 +32,3 @@ service/src/main/resources/org/signal/subscriptions/Subscriptions_*.properties
 .classpath
 .settings
 .DS_Store
-.vscode
-*.swp
-*.swo
