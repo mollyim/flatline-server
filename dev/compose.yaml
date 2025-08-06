@@ -1,8 +1,10 @@
 services:
   whisper-service:
     container_name: flatline-whisper-service
-    image: flatline-whisper-service:0.0.0-dirty-SNAPSHOT-dev
-    pull_policy: never # Only use a local container image.
+    image: ghcr.io/mollyim/flatline-whisper-service:latest
+    # Use the image below if building locally as described in README.
+    # image: flatline-whisper-service:dev
+    # pull_policy: never # Ensure the local image is used.
     environment:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
@@ -31,8 +33,10 @@ services:
         condition: service_healthy
   storage-service:
     container_name: flatline-storage-service
-    image: flatline-storage-service:0.0.0-dirty-SNAPSHOT-dev
-    pull_policy: never # Only use a local container image.
+    image: ghcr.io/mollyim/flatline-storage-service:latest
+    # Use the image below if building locally as described in README.
+    # image: flatline-storage-service:dev
+    # pull_policy: never # Ensure the local image is used.
     environment:
       - AWS_REGION=us-east-1
       - HTTP_HOST=0.0.0.0
@@ -51,8 +55,10 @@ services:
         condition: service_healthy
   registration-service:
     container_name: flatline-registration-service
-    image: flatline-registration-service:0.0.0-dirty-SNAPSHOT-dev
-    pull_policy: never # Only use a local container image.
+    image: ghcr.io/mollyim/flatline-registration-service:latest
+    # Use the image below if building locally as described in README.
+    # image: flatline-registration-service:dev
+    # pull_policy: never # Ensure the local image is used.
     healthcheck:
       test: [ CMD-SHELL, "timeout 1s bash -c '</dev/tcp/localhost/50051' || exit 1" ]
       interval: 2s
@@ -62,8 +68,10 @@ services:
       - 50051 # API
   contact-discovery-service:
     container_name: flatline-contact-discovery-service
-    image: flatline-contact-discovery-service:experimental
-    pull_policy: never # Only use a local container image.
+    image: ghcr.io/mollyim/flatline-contact-discovery-service:latest
+    # Use the image below if building locally as described in README.
+    # image: flatline-contact-discovery-service:dev
+    # pull_policy: never # Ensure the local image is used.
     environment:
       - _JAVA_OPTIONS="-Dmicronaut.environments=dev"
       - SGX_MODE=SIM # Run SGX in simulation mode.
