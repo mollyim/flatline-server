@@ -2,8 +2,9 @@ name: Sync Upstream
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'
+  # TODO: Enable schedule once sync has been tested.
+  # schedule:
+  #   - cron: '0 0 * * *'
 
 jobs:
   sync:
