@@ -105,13 +105,17 @@ In addition to the JAR artifacts, this stage will build and locally store contai
 #### Whisper Service
 
 ```bash
-./mvnw -f whisper-service/pom.xml clean deploy -Pexclude-spam-filter -Denv=dev -DskipTests
+./mvnw -f whisper-service/pom.xml clean deploy \
+  -Pexclude-spam-filter -Denv=dev -DskipTests \
+  -Djib.to.image="flatline-whisper-service:dev"
 ```
 
 #### Storage Service
 
 ```bash
-./mvnw -f storage-service/pom.xml clean package -Pdocker-deploy -Denv=dev -DskipTests
+./mvnw -f storage-service/pom.xml clean package \
+  -Pdocker-deploy -Denv=dev -DskipTests \
+  -Djib.to.image="flatline-storage-service:dev"
 ```
 
 The `env` property is used as a prefix to fetch the relevant configuration files from `storage-service/config`.
@@ -120,7 +124,8 @@ The `env` property is used as a prefix to fetch the relevant configuration files
 
 ```bash
 ./mvnw -f registration-service/pom.xml clean package \
-  -Ddocker.repo=flatline-registration-service -Denv=dev -DskipTests
+  -Denv=dev -DskipTests \
+  -Djib.to.image="flatline-registration-service:dev"
 ```
 
 As configured for this prototype, the verification code is always the last six digits of the phone number.
@@ -128,14 +133,17 @@ As configured for this prototype, the verification code is always the last six d
 #### Contact Discovery Service
 
 ```
-./mvnw -f contact-discovery-service/pom.xml package -Dpackaging=docker \
-  -Djib.to.image="flatline-contact-discovery-service:experimental" -DskipTests
+./mvnw -f contact-discovery-service/pom.xml package \
+  -Dpackaging=docker -DskipTests \
+  -Djib.to.image="flatline-contact-discovery-service:dev"
 ```
 
 ### Running
 
-The `dev/compose.yaml` file will deploy the containers built in the previous stage for local testing with Docker.
+The `dev/compose.yaml` file will use Docker to deploy the container images built from the `main` branch.
 
 ```bash
 docker compose -f dev/compose.yaml up
 ```
+
+When building the container images locally, edit the compose file to reference those images instead.
