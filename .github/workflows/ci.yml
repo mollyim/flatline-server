@@ -77,7 +77,7 @@ jobs:
         id: tag
         run: |
           if [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=${DEFAULT_BRANCH},latest" >> $GITHUB_OUTPUT
           else
             # Workflow only runs on the default branch and on PR branches.
             echo "tag=pr-$(echo "$GITHUB_REF_NAME" | cut -d'/' -f1)" >> $GITHUB_OUTPUT

@@ -1,7 +1,7 @@
 services:
   whisper-service:
     container_name: flatline-whisper-service
-    image: ghcr.io/mollyim/flatline-whisper-service:latest
+    image: ghcr.io/mollyim/flatline-whisper-service:main
     # Use the image below if building locally as described in README.
     # image: flatline-whisper-service:dev
     # pull_policy: never # Ensure the local image is used.
@@ -33,7 +33,7 @@ services:
         condition: service_healthy
   storage-service:
     container_name: flatline-storage-service
-    image: ghcr.io/mollyim/flatline-storage-service:latest
+    image: ghcr.io/mollyim/flatline-storage-service:main
     # Use the image below if building locally as described in README.
     # image: flatline-storage-service:dev
     # pull_policy: never # Ensure the local image is used.
@@ -55,7 +55,7 @@ services:
         condition: service_healthy
   registration-service:
     container_name: flatline-registration-service
-    image: ghcr.io/mollyim/flatline-registration-service:latest
+    image: ghcr.io/mollyim/flatline-registration-service:main
     # Use the image below if building locally as described in README.
     # image: flatline-registration-service:dev
     # pull_policy: never # Ensure the local image is used.
@@ -68,7 +68,7 @@ services:
       - 50051 # API
   contact-discovery-service:
     container_name: flatline-contact-discovery-service
-    image: ghcr.io/mollyim/flatline-contact-discovery-service:latest
+    image: ghcr.io/mollyim/flatline-contact-discovery-service:main
     # Use the image below if building locally as described in README.
     # image: flatline-contact-discovery-service:dev
     # pull_policy: never # Ensure the local image is used.
