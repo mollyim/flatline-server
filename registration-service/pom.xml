@@ -34,6 +34,9 @@
 
     <!-- eclipse-temurin:21-jre-jammy (note: always use the multi-arch manifest *LIST* here); see https://hub.docker.com/_/eclipse-temurin -->
     <docker.image.sha256>02fc89fa8766a9ba221e69225f8d1c10bb91885ddbd3c112448e23488ba40ab6</docker.image.sha256>
+
+    <!-- FLT(uoemai): Default to storing container image locally. Use "build" to push to a registry. -->
+    <jib.goal>dockerBuild</jib.goal>
   </properties>
 
   <repositories>
@@ -513,7 +516,8 @@
             <execution>
                 <phase>package</phase>
                 <goals>
-	            <goal>dockerBuild</goal>
+                    <!-- FLT(uoemai): Allow customizing container image storage. -->
+	            <goal>${jib.goal}</goal>
                 </goals>
             </execution>
         </executions>
@@ -521,10 +525,7 @@
           <from>
             <image>eclipse-temurin@sha256:${docker.image.sha256}</image>
           </from>
-          <!-- FLT(uoemai): Tag container image. -->
-          <to>
-              <image>${docker.repo}:${project.version}-${env}</image>
-          </to>
+
           <container>
             <jvmFlags>
               <jvmFlag>-XX:MaxRAMPercentage=75</jvmFlag>
