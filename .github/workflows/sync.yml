@@ -1,0 +1,71 @@
+name: Sync Upstream
+
+on:
+  workflow_dispatch:
+  # TODO: Enable schedule once sync has been tested.
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+jobs:
+  sync:
+    name: Sync
+    if: "github.repository_owner == 'mollyim'"
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        project:
+          - name: Whisper Service
+            codename: whisper
+            dir: whisper-service
+            repo: https://github.com/signalapp/Signal-Server
+            branch: main
+          - name: Storage Service
+            codename: storage
+            dir: storage-service
+            repo: https://github.com/signalapp/storage-service
+            branch: main
+          - name: Registration Service
+            codename: registration
+            dir: registration-service
+            repo: https://github.com/signalapp/registration-service
+            branch: main
+          - name: Contact Discovery Service
+            codename: cds
+            dir: contact-discovery-service
+            repo: https://github.com/signalapp/ContactDiscoveryService-Icelake
+            branch: main
+
+    steps:
+      - name: Checkout Monorepo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Prepare Upstream Branch
+        run: |
+          BRANCH="upstream/${{ matrix.project.codename }}"
+          # Create or reset the branch
+          if git show-ref --verify --quiet refs/heads/$BRANCH; then
+            git checkout $BRANCH
+          else
+            git checkout --orphan $BRANCH
+            git rm -rf .
+          fi
+
+      - name: Fetch Upstream Repository
+        id: fetch 
+        run: |
+          rm -rf ${{ matrix.project.dir }}
+          git clone --depth 1 \
+            --branch ${{ matrix.project.branch }} \
+            ${{ matrix.project.repo }} ${{ matrix.project.dir }}
+          version=$(git -C ${{ matrix.project.dir }} describe --tags --exact-match HEAD 2>/dev/null \
+            || git -C ${{ matrix.project.dir }} rev-parse --short HEAD)
+          echo "version=$version" >> $GITHUB_OUTPUT
+          rm -rf ${{ matrix.project.dir }}/.git
+
+      - name: Commit & Force-Push
+        run: |
+          git add ${{ matrix.project.dir }}
+          git commit -m "sync: update ${{ matrix.project.name }} to ${{ steps.fetch.outputs.version }}" --allow-empty
+          git push origin HEAD:upstream/${{ matrix.project.codename }} --force
