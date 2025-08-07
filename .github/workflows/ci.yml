@@ -93,6 +93,7 @@ jobs:
             -Pexclude-spam-filter \
             -Denv=dev \
             -DskipTests \
+            -Djib.goal=build \
             -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-whisper-service \
             -Djib.to.tags=${{ steps.tag.outputs.tag }} \
             -Djib.to.auth.username=${{ github.token }} \
