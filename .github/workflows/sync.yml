@@ -41,19 +41,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Import GPG Private Key
-        if: false
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6.3.0
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ""
-          export_gpg_keys: true
-
       - name: Configure Git
         run: |
           git config user.name "flatline-sync"
           git config user.email "flatline@molly.im"
-          # git config commit.gpgsign true
 
       - name: Prepare Upstream Branch
         run: |
