@@ -53,7 +53,7 @@ jobs:
           apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       - name: Configure FoundationDB
         run: docker exec foundationdb /usr/bin/fdbcli --exec "configure new single memory"
-      - name: Prepare with Maven
+      - name: Download FoundationDB Client
         run: |
           ./mvnw -e -B \
             -f whisper-service/pom.xml \
