@@ -2,9 +2,8 @@ name: Sync Upstream
 
 on:
   workflow_dispatch:
-  # TODO: Enable schedule once sync has been tested.
-  # schedule:
-  #   - cron: '0 0 * * *'
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   sync:
@@ -70,6 +69,6 @@ jobs:
 
       - name: Commit & Force-Push
         run: |
-          git add ${{ matrix.project.dir }}
+          git add "${{ matrix.project.dir }}"
           git commit -m "sync: update ${{ matrix.project.name }} to ${{ steps.fetch.outputs.version }}" --allow-empty
-          git push origin HEAD:upstream/${{ matrix.project.codename }} --force
+          git push origin "HEAD:upstream/${{ matrix.project.codename }}" --force
