@@ -63,7 +63,7 @@ jobs:
 
       - name: Discard Excluded Files
         run: |
-          excluded=".git .github .mvn mvnw mvnw.cmd"
+          excluded=".git .gitmodules .github .mvn mvnw mvnw.cmd mvnw.bat"
           for f in $excluded; do
             rm -rf "${{ matrix.project.dir }}/$f"
           done
