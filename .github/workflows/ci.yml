@@ -1,4 +1,4 @@
-name: CI 
+name: Continuous Integration
 
 on:
   pull_request:
@@ -89,8 +89,8 @@ jobs:
         run: |
           ./mvnw -e -B \
             -f whisper-service/pom.xml \
-            clean deploy \
-            -Pcontainer-registry,exclude-spam-filter \
+            deploy \
+            -Pexclude-spam-filter \
             -Denv=dev \
             -DskipTests \
             -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-whisper-service \

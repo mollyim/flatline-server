@@ -132,7 +132,7 @@ As configured for this prototype, the verification code is always the last six d
 
 #### Contact Discovery Service
 
-```
+```bash
 ./mvnw -f contact-discovery-service/pom.xml package \
   -Dpackaging=docker -DskipTests \
   -Djib.to.image="flatline-contact-discovery-service:dev"
