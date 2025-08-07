@@ -38,6 +38,8 @@ jobs:
     steps:
       - name: Checkout Monorepo
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
 
       - name: Configure Git
         run: |
@@ -51,14 +53,20 @@ jobs:
       - name: Fetch Upstream Repository
         id: fetch 
         run: |
-          rm -rf ${{ matrix.project.dir }}
+          rm -rf "${{ matrix.project.dir }}"
           git clone --depth 1 \
-            --branch ${{ matrix.project.branch }} \
-            ${{ matrix.project.repo }} ${{ matrix.project.dir }}
-          version=$(git -C ${{ matrix.project.dir }} describe --tags --exact-match HEAD 2>/dev/null \
-            || git -C ${{ matrix.project.dir }} rev-parse --short HEAD)
+            --branch "${{ matrix.project.branch }}" \
+            "${{ matrix.project.repo }}" "${{ matrix.project.dir }}"
+          version=$(git -C "${{ matrix.project.dir }}" describe --tags --exact-match HEAD 2>/dev/null \
+            || git -C "${{ matrix.project.dir }}" rev-parse --short HEAD)
           echo "version=$version" >> $GITHUB_OUTPUT
-          rm -rf ${{ matrix.project.dir }}/.git
+
+      - name: Discard Excluded Files
+        run: |
+          excluded=".git .github .mvn mvnw mvnw.cmd"
+          for f in $excluded; do
+            rm -rf "${{ matrix.project.dir }}/$f"
+          done
 
       - name: Commit & Force-Push
         run: |
