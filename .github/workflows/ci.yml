@@ -1,4 +1,4 @@
-name: CI 
+name: Continuous Integration
 
 on:
   pull_request:
@@ -53,7 +53,7 @@ jobs:
           apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       - name: Configure FoundationDB
         run: docker exec foundationdb /usr/bin/fdbcli --exec "configure new single memory"
-      - name: Prepare with Maven
+      - name: Download FoundationDB Client
         run: |
           ./mvnw -e -B \
             -f whisper-service/pom.xml \
@@ -77,10 +77,13 @@ jobs:
         id: tag
         run: |
           if [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
-            echo "tag=${DEFAULT_BRANCH},latest" >> $GITHUB_OUTPUT
+            echo "tag=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
+            echo "extra-tags=latest" >> $GITHUB_OUTPUT
           else
             # Workflow only runs on the default branch and on PR branches.
-            echo "tag=pr-$(echo "$GITHUB_REF_NAME" | cut -d'/' -f1)" >> $GITHUB_OUTPUT
+            tag="pr-$(echo "$GITHUB_REF_NAME" | cut -d'/' -f1)"
+            echo "tag=$tag" >> $GITHUB_OUTPUT
+            echo "extra-tags=$tag" >> $GITHUB_OUTPUT
           fi
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
@@ -89,12 +92,13 @@ jobs:
         run: |
           ./mvnw -e -B \
             -f whisper-service/pom.xml \
-            clean deploy \
-            -Pcontainer-registry,exclude-spam-filter \
+            deploy \
+            -Pexclude-spam-filter \
             -Denv=dev \
             -DskipTests \
-            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-whisper-service \
-            -Djib.to.tags=${{ steps.tag.outputs.tag }} \
+            -Djib.goal=build \
+            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-whisper-service:${{ steps.tag.outputs.tag }} \
+            -Djib.to.tags=${{ steps.tag.outputs.extra-tags }} \
             -Djib.to.auth.username=${{ github.token }} \
             -Djib.to.auth.password=${{ github.token }}
 
@@ -115,8 +119,8 @@ jobs:
             -Pdocker-deploy \
             -Denv=dev \
             -Djib.goal=build \
-            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-storage-service \
-            -Djib.to.tags=${{ steps.tag.outputs.tag }} \
+            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-storage-service:${{ steps.tag.outputs.tag }} \
+            -Djib.to.tags=${{ steps.tag.outputs.extra-tags }} \
             -Djib.to.auth.username=${{ github.token }} \
             -Djib.to.auth.password=${{ github.token }}
 
@@ -136,8 +140,8 @@ jobs:
             clean package \
             -Denv=dev \
             -Djib.goal=build \
-            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-registration-service \
-            -Djib.to.tags=${{ steps.tag.outputs.tag }} \
+            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-registration-service:${{ steps.tag.outputs.tag }} \
+            -Djib.to.tags=${{ steps.tag.outputs.extra-tags }} \
             -Djib.to.auth.username=${{ github.token }} \
             -Djib.to.auth.password=${{ github.token }}
 
@@ -171,7 +175,7 @@ jobs:
             deploy \
             -Dpackaging=docker \
             -DskipTests \
-            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-contact-discovery-service \
-            -Djib.to.tags=${{ steps.tag.outputs.tag }} \
+            -Djib.to.image=ghcr.io/${{ github.repository_owner }}/flatline-contact-discovery-service:${{ steps.tag.outputs.tag }} \
+            -Djib.to.tags=${{ steps.tag.outputs.extra-tags }} \
             -Djib.to.auth.username=${{ github.token }} \
             -Djib.to.auth.password=${{ github.token }}
