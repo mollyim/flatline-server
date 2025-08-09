@@ -47,7 +47,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junitpioneer.jupiter.cartesian.CartesianTest;
-import org.signal.libsignal.protocol.ecc.Curve;
+import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.signal.libsignal.zkgroup.InvalidInputException;
 import org.signal.libsignal.zkgroup.ServerSecretParams;
 import org.signal.libsignal.zkgroup.VerificationFailedException;
@@ -63,6 +63,7 @@ import org.signal.libsignal.zkgroup.receipts.ReceiptSerial;
 import org.signal.libsignal.zkgroup.receipts.ServerZkReceiptOperations;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedBackupUser;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
+import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentials;
 import org.whispersystems.textsecuregcm.backup.BackupAuthManager;
 import org.whispersystems.textsecuregcm.backup.BackupAuthTestUtil;
 import org.whispersystems.textsecuregcm.backup.BackupManager;
@@ -116,6 +117,7 @@ public class ArchiveControllerTest {
   @ParameterizedTest
   @CsvSource(textBlock = """
       GET,    v1/archives/auth/read,
+      GET,    v1/archives/auth/svrb,
       GET,    v1/archives/,
       GET,    v1/archives/upload/form,
       GET,    v1/archives/media/upload/form,
@@ -247,7 +249,7 @@ public class ArchiveControllerTest {
         .header("X-Signal-ZK-Auth", Base64.getEncoder().encodeToString(presentation.serialize()))
         .header("X-Signal-ZK-Auth-Signature", "aaa")
         .put(Entity.entity(
-            new ArchiveController.SetPublicKeyRequest(Curve.generateKeyPair().getPublicKey()),
+            new ArchiveController.SetPublicKeyRequest(ECKeyPair.generate().getPublicKey()),
             MediaType.APPLICATION_JSON_TYPE));
     assertThat(response.getStatus()).isEqualTo(204);
   }
@@ -574,6 +576,46 @@ public class ArchiveControllerTest {
     assertThat(response.getStatus()).isEqualTo(204);
   }
 
+
+  static Stream<Arguments> messagesUploadForm() {
+    return Stream.of(
+        Arguments.of(Optional.empty(), true),
+        Arguments.of(Optional.of(BackupManager.MAX_MESSAGE_BACKUP_OBJECT_SIZE), true),
+        Arguments.of(Optional.of(BackupManager.MAX_MESSAGE_BACKUP_OBJECT_SIZE + 1), false)
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource
+  public void messagesUploadForm(Optional<Long> uploadLength, boolean expectSuccess) throws VerificationFailedException {
+    final BackupAuthCredentialPresentation presentation =
+        backupAuthTestUtil.getPresentation(BackupLevel.PAID, messagesBackupKey, aci);
+    when(backupManager.authenticateBackupUser(any(), any(), any()))
+        .thenReturn(CompletableFuture.completedFuture(backupUser(presentation.getBackupId(), BackupCredentialType.MESSAGES, BackupLevel.PAID)));
+    when(backupManager.createMessageBackupUploadDescriptor(any()))
+        .thenReturn(CompletableFuture.completedFuture(
+            new BackupUploadDescriptor(3, "abc", Map.of("k", "v"), "example.org")));
+
+    final WebTarget builder = resources.getJerseyTest().target("v1/archives/upload/form");
+    final Response response = uploadLength
+        .map(length -> builder.queryParam("uploadLength", length))
+        .orElse(builder)
+        .request()
+        .header("X-Signal-ZK-Auth", Base64.getEncoder().encodeToString(presentation.serialize()))
+        .header("X-Signal-ZK-Auth-Signature", "aaa")
+        .get();
+    if (expectSuccess) {
+      assertThat(response.getStatus()).isEqualTo(200);
+      ArchiveController.UploadDescriptorResponse desc = response.readEntity(ArchiveController.UploadDescriptorResponse.class);
+      assertThat(desc.cdn()).isEqualTo(3);
+      assertThat(desc.key()).isEqualTo("abc");
+      assertThat(desc.headers()).containsExactlyEntriesOf(Map.of("k", "v"));
+      assertThat(desc.signedUploadLocation()).isEqualTo("example.org");
+    } else {
+      assertThat(response.getStatus()).isEqualTo(413);
+    }
+  }
+
   @Test
   public void mediaUploadForm() throws VerificationFailedException {
     final BackupAuthCredentialPresentation presentation =
@@ -621,6 +663,24 @@ public class ArchiveControllerTest {
         .header("X-Signal-ZK-Auth-Signature", "aaa")
         .get(ArchiveController.ReadAuthResponse.class);
     assertThat(response.headers()).containsExactlyEntriesOf(Map.of("key", "value"));
+  }
+
+
+  @Test
+  public void svrbAuth() throws VerificationFailedException {
+    final BackupAuthCredentialPresentation presentation =
+        backupAuthTestUtil.getPresentation(BackupLevel.PAID, messagesBackupKey, aci);
+    when(backupManager.authenticateBackupUser(any(), any(), any()))
+        .thenReturn(CompletableFuture.completedFuture(backupUser(presentation.getBackupId(), BackupCredentialType.MESSAGES, BackupLevel.PAID)));
+    final ExternalServiceCredentials credentials = new ExternalServiceCredentials("username", "password");
+    when(backupManager.generateSvrbAuth(any())).thenReturn(credentials);
+    final ExternalServiceCredentials response = resources.getJerseyTest()
+        .target("v1/archives/auth/svrb")
+        .request()
+        .header("X-Signal-ZK-Auth", Base64.getEncoder().encodeToString(presentation.serialize()))
+        .header("X-Signal-ZK-Auth-Signature", "aaa")
+        .get(ExternalServiceCredentials.class);
+    assertThat(response).isEqualTo(credentials);
   }
 
   @Test

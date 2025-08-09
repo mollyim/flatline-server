@@ -8,6 +8,7 @@ package org.whispersystems.textsecuregcm.grpc;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyByte;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,7 +41,6 @@ import org.signal.chat.keys.KeysAnonymousGrpc;
 import org.signal.chat.keys.ReactorKeysAnonymousGrpc;
 import org.signal.libsignal.protocol.IdentityKey;
 import org.signal.libsignal.protocol.InvalidKeyException;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.signal.libsignal.zkgroup.ServerSecretParams;
 import org.whispersystems.textsecuregcm.auth.UnidentifiedAccessUtil;
@@ -86,7 +86,7 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
     final Device targetDevice = DevicesHelper.createDevice(Device.PRIMARY_ID);
     when(targetAccount.getDevice(Device.PRIMARY_ID)).thenReturn(Optional.of(targetDevice));
 
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair identityKeyPair = ECKeyPair.generate();
     final IdentityKey identityKey = new IdentityKey(identityKeyPair.getPublicKey());
     final UUID uuid = UUID.randomUUID();
     final AciServiceIdentifier identifier = new AciServiceIdentifier(uuid);
@@ -98,18 +98,14 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
     when(accountsManager.getByServiceIdentifierAsync(identifier))
         .thenReturn(CompletableFuture.completedFuture(Optional.of(targetAccount)));
 
-    final ECPreKey ecPreKey = new ECPreKey(1, Curve.generateKeyPair().getPublicKey());
+    final ECPreKey ecPreKey = new ECPreKey(1, ECKeyPair.generate().getPublicKey());
     final ECSignedPreKey ecSignedPreKey = KeysHelper.signedECPreKey(2, identityKeyPair);
     final KEMSignedPreKey kemSignedPreKey = KeysHelper.signedKEMPreKey(3, identityKeyPair);
+    final KeysManager.DevicePreKeys devicePreKeys =
+        new KeysManager.DevicePreKeys(ecSignedPreKey, Optional.of(ecPreKey), kemSignedPreKey);
 
-    when(keysManager.takeEC(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(ecPreKey)));
-
-    when(keysManager.takePQ(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(kemSignedPreKey)));
-
-    when(keysManager.getEcSignedPreKey(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(ecSignedPreKey)));
+    when(keysManager.takeDevicePreKeys(eq(Device.PRIMARY_ID), eq(identifier), any()))
+        .thenReturn(CompletableFuture.completedFuture(Optional.of(devicePreKeys)));
 
     final GetPreKeysResponse response = unauthenticatedServiceStub().getPreKeys(GetPreKeysAnonymousRequest.newBuilder()
         .setUnidentifiedAccessKey(ByteString.copyFrom(unidentifiedAccessKey))
@@ -137,7 +133,7 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
     final Device targetDevice = DevicesHelper.createDevice(Device.PRIMARY_ID);
     when(targetAccount.getDevice(Device.PRIMARY_ID)).thenReturn(Optional.of(targetDevice));
 
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair identityKeyPair = ECKeyPair.generate();
     final IdentityKey identityKey = new IdentityKey(identityKeyPair.getPublicKey());
     final UUID uuid = UUID.randomUUID();
     final AciServiceIdentifier identifier = new AciServiceIdentifier(uuid);
@@ -149,18 +145,14 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
     when(accountsManager.getByServiceIdentifierAsync(identifier))
         .thenReturn(CompletableFuture.completedFuture(Optional.of(targetAccount)));
 
-    final ECPreKey ecPreKey = new ECPreKey(1, Curve.generateKeyPair().getPublicKey());
+    final ECPreKey ecPreKey = new ECPreKey(1, ECKeyPair.generate().getPublicKey());
     final ECSignedPreKey ecSignedPreKey = KeysHelper.signedECPreKey(2, identityKeyPair);
     final KEMSignedPreKey kemSignedPreKey = KeysHelper.signedKEMPreKey(3, identityKeyPair);
+    final KeysManager.DevicePreKeys devicePreKeys =
+        new KeysManager.DevicePreKeys(ecSignedPreKey, Optional.of(ecPreKey), kemSignedPreKey);
 
-    when(keysManager.takeEC(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(ecPreKey)));
-
-    when(keysManager.takePQ(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(kemSignedPreKey)));
-
-    when(keysManager.getEcSignedPreKey(uuid, Device.PRIMARY_ID))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(ecSignedPreKey)));
+    when(keysManager.takeDevicePreKeys(eq(Device.PRIMARY_ID), eq(identifier), any()))
+        .thenReturn(CompletableFuture.completedFuture(Optional.of(devicePreKeys)));
 
     // Expirations must be on day boundaries or libsignal will refuse to create or verify the token
     final Instant expiration = Instant.now().truncatedTo(ChronoUnit.DAYS);
@@ -312,7 +304,7 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
 
     final Account targetAccount = mock(Account.class);
     when(targetAccount.getUuid()).thenReturn(accountIdentifier);
-    when(targetAccount.getIdentityKey(IdentityType.ACI)).thenReturn(new IdentityKey(Curve.generateKeyPair().getPublicKey()));
+    when(targetAccount.getIdentityKey(IdentityType.ACI)).thenReturn(new IdentityKey(ECKeyPair.generate().getPublicKey()));
     when(targetAccount.getDevices()).thenReturn(Collections.emptyList());
     when(targetAccount.getDevice(anyByte())).thenReturn(Optional.empty());
     when(targetAccount.getUnidentifiedAccessKey()).thenReturn(Optional.of(unidentifiedAccessKey));
@@ -338,15 +330,15 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
 
     final Account mismatchedAciFingerprintAccount = mock(Account.class);
     final UUID mismatchedAciFingerprintAccountIdentifier = UUID.randomUUID();
-    final IdentityKey mismatchedAciFingerprintAccountIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey mismatchedAciFingerprintAccountIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     final Account matchingAciFingerprintAccount = mock(Account.class);
     final UUID matchingAciFingerprintAccountIdentifier = UUID.randomUUID();
-    final IdentityKey matchingAciFingerprintAccountIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey matchingAciFingerprintAccountIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     final Account mismatchedPniFingerprintAccount = mock(Account.class);
     final UUID mismatchedPniFingerprintAccountIdentifier = UUID.randomUUID();
-    final IdentityKey mismatchedPniFingerpringAccountIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey mismatchedPniFingerpringAccountIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     when(mismatchedAciFingerprintAccount.getIdentityKey(IdentityType.ACI)).thenReturn(mismatchedAciFingerprintAccountIdentityKey);
     when(accountsManager.getByServiceIdentifierAsync(new AciServiceIdentifier(mismatchedAciFingerprintAccountIdentifier)))
@@ -362,13 +354,13 @@ class KeysAnonymousGrpcServiceTest extends SimpleBaseGrpcTest<KeysAnonymousGrpcS
 
     final Flux<CheckIdentityKeyRequest> requests = Flux.just(
         buildCheckIdentityKeyRequest(org.signal.chat.common.IdentityType.IDENTITY_TYPE_ACI, mismatchedAciFingerprintAccountIdentifier,
-            new IdentityKey(Curve.generateKeyPair().getPublicKey())),
+            new IdentityKey(ECKeyPair.generate().getPublicKey())),
         buildCheckIdentityKeyRequest(org.signal.chat.common.IdentityType.IDENTITY_TYPE_ACI, matchingAciFingerprintAccountIdentifier,
             matchingAciFingerprintAccountIdentityKey),
         buildCheckIdentityKeyRequest(org.signal.chat.common.IdentityType.IDENTITY_TYPE_PNI, UUID.randomUUID(),
-            new IdentityKey(Curve.generateKeyPair().getPublicKey())),
+            new IdentityKey(ECKeyPair.generate().getPublicKey())),
         buildCheckIdentityKeyRequest(org.signal.chat.common.IdentityType.IDENTITY_TYPE_PNI, mismatchedPniFingerprintAccountIdentifier,
-            new IdentityKey(Curve.generateKeyPair().getPublicKey()))
+            new IdentityKey(ECKeyPair.generate().getPublicKey()))
     );
 
     final Map<UUID, IdentityKey> expectedResponses = Map.of(

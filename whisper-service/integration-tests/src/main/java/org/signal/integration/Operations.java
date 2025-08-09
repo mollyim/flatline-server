@@ -34,7 +34,6 @@ import org.apache.commons.lang3.Validate;
 import org.apache.commons.lang3.tuple.Pair;
 import org.signal.integration.config.Config;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.signal.libsignal.protocol.ecc.ECPublicKey;
 import org.signal.libsignal.protocol.kem.KEMKeyPair;
@@ -45,6 +44,7 @@ import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
 import org.whispersystems.textsecuregcm.entities.AccountAttributes;
 import org.whispersystems.textsecuregcm.entities.AccountIdentityResponse;
+import org.whispersystems.textsecuregcm.entities.DeviceActivationRequest;
 import org.whispersystems.textsecuregcm.entities.ECSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.KEMSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.RegistrationRequest;
@@ -78,8 +78,8 @@ public final class Operations {
     final TestUser user = TestUser.create(number, accountPassword, registrationPassword);
     final AccountAttributes accountAttributes = user.accountAttributes();
 
-    final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
     // register account
     final RegistrationRequest registrationRequest = new RegistrationRequest(null,
@@ -88,12 +88,12 @@ public final class Operations {
         true,
         new IdentityKey(aciIdentityKeyPair.getPublicKey()),
         new IdentityKey(pniIdentityKeyPair.getPublicKey()),
-        generateSignedECPreKey(1, aciIdentityKeyPair),
-        generateSignedECPreKey(2, pniIdentityKeyPair),
-        generateSignedKEMPreKey(3, aciIdentityKeyPair),
-        generateSignedKEMPreKey(4, pniIdentityKeyPair),
-        Optional.empty(),
-        Optional.empty());
+        new DeviceActivationRequest(generateSignedECPreKey(1, aciIdentityKeyPair),
+            generateSignedECPreKey(2, pniIdentityKeyPair),
+            generateSignedKEMPreKey(3, aciIdentityKeyPair),
+            generateSignedKEMPreKey(4, pniIdentityKeyPair),
+            Optional.empty(),
+            Optional.empty()));
 
     final AccountIdentityResponse registrationResponse = apiPost("/v1/registration", registrationRequest)
         .authorized(number, accountPassword)
@@ -336,7 +336,7 @@ public final class Operations {
   }
 
   public static ECSignedPreKey generateSignedECPreKey(final long id, final ECKeyPair identityKeyPair) {
-    final ECPublicKey pubKey = Curve.generateKeyPair().getPublicKey();
+    final ECPublicKey pubKey = ECKeyPair.generate().getPublicKey();
     final byte[] signature = identityKeyPair.getPrivateKey().calculateSignature(pubKey.serialize());
     return new ECSignedPreKey(id, pubKey, signature);
   }

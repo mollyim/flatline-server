@@ -10,7 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -38,10 +39,11 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.Mockito;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtensionSchema.Tables;
 import org.whispersystems.textsecuregcm.tests.util.AccountsHelper;
 import org.whispersystems.textsecuregcm.util.AttributeValues;
@@ -73,6 +75,7 @@ class AccountsManagerUsernameIntegrationTest {
       Tables.PNI_ASSIGNMENTS,
       Tables.EC_KEYS,
       Tables.PQ_KEYS,
+      Tables.PAGED_PQ_KEYS,
       Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
 
@@ -109,7 +112,8 @@ class AccountsManagerUsernameIntegrationTest {
         new RepeatedUseECSignedPreKeyStore(dynamoDbAsyncClient,
             DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS.tableName()),
         new RepeatedUseKEMSignedPreKeyStore(dynamoDbAsyncClient,
-            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()));
+            DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS.tableName()),
+        mock(ExperimentEnrollmentManager.class));
 
     accounts = Mockito.spy(new Accounts(
         Clock.systemUTC(),
@@ -127,9 +131,9 @@ class AccountsManagerUsernameIntegrationTest {
     doAnswer(invocation -> {
       final Callable<?> task = invocation.getArgument(1);
       return task.call();
-    }).when(accountLockManager).withLock(anyList(), any(), any());
+    }).when(accountLockManager).withLock(anySet(), any(), any());
 
-    when(accountLockManager.withLockAsync(anyList(), any(), any())).thenAnswer(invocation -> {
+    when(accountLockManager.withLockAsync(anySet(), any(), any())).thenAnswer(invocation -> {
       final Supplier<CompletableFuture<?>> taskSupplier = invocation.getArgument(1);
       taskSupplier.get().join();
 
@@ -142,7 +146,7 @@ class AccountsManagerUsernameIntegrationTest {
     final MessagesManager messageManager = mock(MessagesManager.class);
     final ProfilesManager profileManager = mock(ProfilesManager.class);
     when(messageManager.clear(any())).thenReturn(CompletableFuture.completedFuture(null));
-    when(profileManager.deleteAll(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(profileManager.deleteAll(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
     final DisconnectionRequestManager disconnectionRequestManager = mock(DisconnectionRequestManager.class);
     when(disconnectionRequestManager.requestDisconnection(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -157,7 +161,7 @@ class AccountsManagerUsernameIntegrationTest {
         messageManager,
         profileManager,
         mock(SecureStorageClient.class),
-        mock(SecureValueRecovery2Client.class),
+        mock(SecureValueRecoveryClient.class),
         disconnectionRequestManager,
         mock(RegistrationRecoveryPasswordsManager.class),
         mock(ClientPublicKeysManager.class),

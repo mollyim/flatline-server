@@ -52,6 +52,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.retry.RetrySpec;
 
 /**
  * Manages short-term storage of messages in Redis. Messages are frequently delivered to their destination and deleted
@@ -282,11 +283,6 @@ public class MessagesCache {
           sample.stop(removeByGuidTimer);
         });
 
-  }
-
-  public boolean hasMessages(final UUID destinationUuid, final byte destinationDevice) {
-    return redisCluster.withBinaryCluster(
-        connection -> connection.sync().zcard(getMessageQueueKey(destinationUuid, destinationDevice)) > 0);
   }
 
   public CompletableFuture<Boolean> hasMessagesAsync(final UUID destinationUuid, final byte destinationDevice) {
@@ -521,6 +517,7 @@ public class MessagesCache {
       long messageId, int pageSize) {
 
     return getItemsScript.execute(destinationUuid, destinationDevice, pageSize, messageId)
+        .retryWhen(RetrySpec.backoff(4, Duration.ofSeconds(1)).maxBackoff(Duration.ofSeconds(4)))
         .map(queueItems -> {
           logger.trace("Processing page: {}", messageId);
 

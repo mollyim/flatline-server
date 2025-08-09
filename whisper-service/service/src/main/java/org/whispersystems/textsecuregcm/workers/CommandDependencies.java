@@ -30,21 +30,24 @@ import org.whispersystems.textsecuregcm.backup.BackupManager;
 import org.whispersystems.textsecuregcm.backup.BackupsDb;
 import org.whispersystems.textsecuregcm.backup.Cdn3BackupCredentialGenerator;
 import org.whispersystems.textsecuregcm.backup.Cdn3RemoteStorageManager;
+import org.whispersystems.textsecuregcm.backup.SecureValueRecoveryBCredentialsGeneratorFactory;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
 import org.whispersystems.textsecuregcm.controllers.SecureStorageController;
 import org.whispersystems.textsecuregcm.controllers.SecureValueRecovery2Controller;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.experiment.PushNotificationExperimentSamples;
+import org.whispersystems.textsecuregcm.grpc.net.GrpcClientConnectionManager;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
 import org.whispersystems.textsecuregcm.metrics.MicrometerAwsSdkMetricPublisher;
 import org.whispersystems.textsecuregcm.push.APNSender;
 import org.whispersystems.textsecuregcm.push.FcmSender;
 import org.whispersystems.textsecuregcm.push.PushNotificationManager;
 import org.whispersystems.textsecuregcm.push.PushNotificationScheduler;
-import org.whispersystems.textsecuregcm.push.WebSocketConnectionEventManager;
+import org.whispersystems.textsecuregcm.push.RedisMessageAvailabilityManager;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.storage.AccountLockManager;
 import org.whispersystems.textsecuregcm.storage.Accounts;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
@@ -85,7 +88,6 @@ record CommandDependencies(
     AccountsManager accountsManager,
     ProfilesManager profilesManager,
     ReportMessageManager reportMessageManager,
-    DisconnectionRequestManager disconnectionRequestManager,
     MessagesCache messagesCache,
     MessagesManager messagesManager,
     KeysManager keysManager,
@@ -122,6 +124,9 @@ record CommandDependencies(
         new DynamicConfigurationManager<>(
             configuration.getDynamicConfig().build(awsCredentialsProvider, dynamicConfigurationExecutor), DynamicConfiguration.class);
     dynamicConfigurationManager.start();
+    ExperimentEnrollmentManager experimentEnrollmentManager =
+        new ExperimentEnrollmentManager(dynamicConfigurationManager);
+
     final ClientResources.Builder redisClientResourcesBuilder = ClientResources.builder();
 
     FaultTolerantRedisClusterClient cacheCluster = configuration.getCacheClusterConfiguration()
@@ -169,6 +174,8 @@ record CommandDependencies(
         configuration.getSecureStorageServiceConfiguration());
     ExternalServiceCredentialsGenerator secureValueRecovery2CredentialsGenerator = SecureValueRecovery2Controller.credentialsGenerator(
         configuration.getSvr2Configuration());
+    ExternalServiceCredentialsGenerator secureValueRecoveryBCredentialsGenerator =
+        SecureValueRecoveryBCredentialsGeneratorFactory.svrbCredentialsGenerator(configuration.getSvrbConfiguration());
 
     final ExecutorService awsSdkMetricsExecutor = environment.lifecycle()
         .virtualExecutorService(MetricRegistry.name(WhisperServerService.class, "awsSdkMetrics-%d"));
@@ -224,7 +231,8 @@ record CommandDependencies(
         new RepeatedUseECSignedPreKeyStore(dynamoDbAsyncClient,
             configuration.getDynamoDbTables().getEcSignedPreKeys().getTableName()),
         new RepeatedUseKEMSignedPreKeyStore(dynamoDbAsyncClient,
-            configuration.getDynamoDbTables().getKemLastResortKeys().getTableName()));
+            configuration.getDynamoDbTables().getKemLastResortKeys().getTableName()),
+        experimentEnrollmentManager);
     MessagesDynamoDb messagesDynamoDb = new MessagesDynamoDb(dynamoDbClient, dynamoDbAsyncClient,
         configuration.getDynamoDbTables().getMessages().getTableName(),
         configuration.getDynamoDbTables().getMessages().getExpiration(),
@@ -233,13 +241,22 @@ record CommandDependencies(
         .getRedisClusterConfiguration().build("messages", redisClientResourcesBuilder);
     FaultTolerantRedisClusterClient rateLimitersCluster = configuration.getRateLimitersCluster().build("rate_limiters",
         redisClientResourcesBuilder);
-    SecureValueRecovery2Client secureValueRecovery2Client = new SecureValueRecovery2Client(
-        secureValueRecovery2CredentialsGenerator, secureValueRecoveryServiceExecutor,
+    SecureValueRecoveryClient secureValueRecovery2Client = new SecureValueRecoveryClient(
+        secureValueRecovery2CredentialsGenerator,
+        secureValueRecoveryServiceExecutor,
         secureValueRecoveryServiceRetryExecutor,
-        configuration.getSvr2Configuration());
+        configuration.getSvr2Configuration(),
+        () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
+    SecureValueRecoveryClient secureValueRecoveryBClient = new SecureValueRecoveryClient(
+        secureValueRecoveryBCredentialsGenerator,
+        secureValueRecoveryServiceExecutor,
+        secureValueRecoveryServiceRetryExecutor,
+        configuration.getSvrbConfiguration(),
+        () -> dynamicConfigurationManager.getConfiguration().getSvrbStatusCodesToIgnoreForAccountDeletion());
     SecureStorageClient secureStorageClient = new SecureStorageClient(storageCredentialsGenerator,
         storageServiceExecutor, storageServiceRetryExecutor, configuration.getSecureStorageServiceConfiguration());
-    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient, disconnectionRequestListenerExecutor);
+    GrpcClientConnectionManager grpcClientConnectionManager = new GrpcClientConnectionManager();
+    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient, grpcClientConnectionManager, disconnectionRequestListenerExecutor);
     MessagesCache messagesCache = new MessagesCache(messagesCluster,
         messageDeliveryScheduler, messageDeletionExecutor, Clock.systemUTC());
     ProfilesManager profilesManager = new ProfilesManager(profiles, cacheCluster, asyncCdnS3Client,
@@ -249,7 +266,9 @@ record CommandDependencies(
         configuration.getReportMessageConfiguration().getReportTtl());
     ReportMessageManager reportMessageManager = new ReportMessageManager(reportMessageDynamoDb, rateLimitersCluster,
         configuration.getReportMessageConfiguration().getCounterTtl());
-    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache,
+    RedisMessageAvailabilityManager redisMessageAvailabilityManager =
+        new RedisMessageAvailabilityManager(messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
+    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, redisMessageAvailabilityManager,
         reportMessageManager, messageDeletionExecutor, Clock.systemUTC());
     AccountLockManager accountLockManager = new AccountLockManager(dynamoDbClient,
         configuration.getDynamoDbTables().getDeletedAccountsLock().getTableName());
@@ -282,6 +301,8 @@ record CommandDependencies(
             remoteStorageHttpExecutor,
             remoteStorageRetryExecutor,
             configuration.getCdn3StorageManagerConfiguration()),
+        secureValueRecoveryBCredentialsGenerator,
+        secureValueRecoveryBClient,
         clock);
 
     final IssuedReceiptsManager issuedReceiptsManager = new IssuedReceiptsManager(
@@ -302,22 +323,18 @@ record CommandDependencies(
             configuration.getDynamoDbTables().getPushNotificationExperimentSamples().getTableName(),
             Clock.systemUTC());
 
-    WebSocketConnectionEventManager webSocketConnectionEventManager =
-        new WebSocketConnectionEventManager(accountsManager, pushNotificationManager, messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
-
     final DynamoDbRecoveryManager dynamoDbRecoveryManager =
         new DynamoDbRecoveryManager(accounts, phoneNumberIdentifiers);
 
     environment.lifecycle().manage(apnSender);
     environment.lifecycle().manage(disconnectionRequestManager);
-    environment.lifecycle().manage(webSocketConnectionEventManager);
+    environment.lifecycle().manage(redisMessageAvailabilityManager);
     environment.lifecycle().manage(new ManagedAwsCrt());
 
     return new CommandDependencies(
         accountsManager,
         profilesManager,
         reportMessageManager,
-        disconnectionRequestManager,
         messagesCache,
         messagesManager,
         keys,
