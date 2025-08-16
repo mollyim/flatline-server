@@ -11,8 +11,6 @@
     <groupId>io.micronaut.platform</groupId>
     <artifactId>micronaut-parent</artifactId>
     <version>4.8.3</version>
-    <!-- FLT(uoemai): Prevent traversing when looking for a parent project. -->
-    <relativePath/>
   </parent>
 
   <properties>
