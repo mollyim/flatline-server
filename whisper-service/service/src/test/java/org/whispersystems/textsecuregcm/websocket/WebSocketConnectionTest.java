@@ -15,7 +15,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,8 +41,6 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
@@ -55,6 +52,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.whispersystems.textsecuregcm.auth.AccountAuthenticator;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
+import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.identity.AciServiceIdentifier;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
@@ -63,7 +61,7 @@ import org.whispersystems.textsecuregcm.metrics.MessageMetrics;
 import org.whispersystems.textsecuregcm.push.PushNotificationManager;
 import org.whispersystems.textsecuregcm.push.PushNotificationScheduler;
 import org.whispersystems.textsecuregcm.push.ReceiptSender;
-import org.whispersystems.textsecuregcm.push.WebSocketConnectionEventManager;
+import org.whispersystems.textsecuregcm.push.RedisMessageAvailabilityManager;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.ClientReleaseManager;
@@ -94,7 +92,6 @@ class WebSocketConnectionTest {
   private UpgradeRequest upgradeRequest;
   private MessagesManager messagesManager;
   private ReceiptSender receiptSender;
-  private ScheduledExecutorService retrySchedulingExecutor;
   private Scheduler messageDeliveryScheduler;
   private ClientReleaseManager clientReleaseManager;
 
@@ -107,7 +104,6 @@ class WebSocketConnectionTest {
     upgradeRequest = mock(UpgradeRequest.class);
     messagesManager = mock(MessagesManager.class);
     receiptSender = mock(ReceiptSender.class);
-    retrySchedulingExecutor = mock(ScheduledExecutorService.class);
     messageDeliveryScheduler = Schedulers.newBoundedElastic(10, 10_000, "messageDelivery");
     clientReleaseManager = mock(ClientReleaseManager.class);
   }
@@ -123,8 +119,8 @@ class WebSocketConnectionTest {
     WebSocketAccountAuthenticator webSocketAuthenticator =
         new WebSocketAccountAuthenticator(accountAuthenticator);
     AuthenticatedConnectListener connectListener = new AuthenticatedConnectListener(accountsManager, receiptSender, messagesManager,
-        new MessageMetrics(), mock(PushNotificationManager.class), mock(PushNotificationScheduler.class),
-        mock(WebSocketConnectionEventManager.class), retrySchedulingExecutor,
+        new MessageMetrics(Duration.ofDays(30)), mock(PushNotificationManager.class), mock(PushNotificationScheduler.class),
+        mock(RedisMessageAvailabilityManager.class), mock(DisconnectionRequestManager.class),
         messageDeliveryScheduler, clientReleaseManager, mock(MessageDeliveryLoopMonitor.class),
         mock(ExperimentEnrollmentManager.class));
     WebSocketSessionContext sessionContext = mock(WebSocketSessionContext.class);
@@ -627,10 +623,18 @@ class WebSocketConnectionTest {
   }
 
   private WebSocketConnection webSocketConnection(final WebSocketClient client) {
-    return new WebSocketConnection(receiptSender, messagesManager, new MessageMetrics(),
-        mock(PushNotificationManager.class), mock(PushNotificationScheduler.class), account, device, client,
-        retrySchedulingExecutor, Schedulers.immediate(), clientReleaseManager,
-        mock(MessageDeliveryLoopMonitor.class), mock(ExperimentEnrollmentManager.class));
+    return new WebSocketConnection(receiptSender,
+        messagesManager,
+        new MessageMetrics(Duration.ofDays(30)),
+        mock(PushNotificationManager.class),
+        mock(PushNotificationScheduler.class),
+        account,
+        device,
+        client,
+        Schedulers.immediate(),
+        clientReleaseManager,
+        mock(MessageDeliveryLoopMonitor.class),
+        mock(ExperimentEnrollmentManager.class));
   }
 
   @Test
@@ -787,20 +791,12 @@ class WebSocketConnectionTest {
     when(messagesManager.getMessagesForDeviceReactive(account.getIdentifier(IdentityType.ACI), device, false))
         .thenReturn(Flux.error(new RedisException("OH NO")));
 
-    when(retrySchedulingExecutor.schedule(any(Runnable.class), anyLong(), any())).thenAnswer(
-        (Answer<ScheduledFuture<?>>) invocation -> {
-          invocation.getArgument(0, Runnable.class).run();
-          return mock(ScheduledFuture.class);
-        });
-
     final WebSocketClient client = mock(WebSocketClient.class);
     when(client.isOpen()).thenReturn(true);
 
     WebSocketConnection connection = webSocketConnection(client);
     connection.start();
 
-    verify(retrySchedulingExecutor, times(WebSocketConnection.MAX_CONSECUTIVE_RETRIES)).schedule(any(Runnable.class),
-        anyLong(), any());
     verify(client).close(eq(1011), anyString());
   }
 
@@ -822,7 +818,6 @@ class WebSocketConnectionTest {
     WebSocketConnection connection = webSocketConnection(client);
     connection.start();
 
-    verify(retrySchedulingExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
     verify(client, never()).close(anyInt(), anyString());
   }
 

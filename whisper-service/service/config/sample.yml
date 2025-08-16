@@ -23,7 +23,7 @@ metrics:
         - "env:staging"
         - "service:chat"
       udpTransport:
-        statsdHost: flatline-otel-collector
+        statsdHost: localhost
         port: 8125
       excludesAttributes:
         - m1_rate
@@ -43,7 +43,6 @@ metrics:
 tlsKeyStore:
   password: secret://tlsKeyStore.password
 
-# FLT(uoemai): All forms of payment are disabled in the prototype.
 stripe:
   apiKey: secret://stripe.apiKey
   idempotencyKeyGenerator: secret://stripe.idempotencyKeyGenerator
@@ -56,7 +55,6 @@ stripe:
     SEPA_DEBIT:
       - eur
 
-# FLT(uoemai): All forms of payment are disabled in the prototype.
 braintree:
   merchantId: unset
   publicKey: unset
@@ -77,14 +75,12 @@ braintree:
         "credential": "configuration"
       }
 
-# FLT(uoemai): All forms of payment are disabled in the prototype.
 googlePlayBilling:
   credentialsJson: secret://googlePlayBilling.credentialsJson
   packageName: package.name
   applicationName: test
   productIdToLevel: {}
 
-# FLT(uoemai): All forms of payment are disabled in the prototype.
 appleAppStore:
   env: SANDBOX
   bundleId: bundle.name
@@ -106,29 +102,29 @@ deviceCheck:
   backupRedemptionLevel: 201
 
 dynamoDbClient:
-  region: us-east-1 # AWS Region
+  region: us-west-2 # AWS Region
 
 dynamoDbTables:
   accounts:
-    tableName: Accounts
-    phoneNumberTableName: Accounts_PhoneNumbers
-    phoneNumberIdentifierTableName: Accounts_PhoneNumberIdentifiers
-    usernamesTableName: Accounts_Usernames
-    usedLinkDeviceTokensTableName: Accounts_UsedLinkDeviceTokens
+    tableName: Example_Accounts
+    phoneNumberTableName: Example_Accounts_PhoneNumbers
+    phoneNumberIdentifierTableName: Example_Accounts_PhoneNumberIdentifiers
+    usernamesTableName: Example_Accounts_Usernames
+    usedLinkDeviceTokensTableName: Example_Accounts_UsedLinkDeviceTokens
   appleDeviceChecks:
-    tableName: AppleDeviceChecks
+    tableName: Example_AppleDeviceChecks
   appleDeviceCheckPublicKeys:
-    tableName: AppleDeviceCheckPublicKeys
+    tableName: Example_AppleDeviceCheckPublicKeys
   backups:
-    tableName: Backups
+    tableName: Example_Backups
   clientReleases:
-    tableName: ClientReleases
+    tableName: Example_ClientReleases
   deletedAccounts:
-    tableName: DeletedAccounts
+    tableName: Example_DeletedAccounts
   deletedAccountsLock:
-    tableName: DeletedAccountsLock
+    tableName: Example_DeletedAccountsLock
   issuedReceipts:
-    tableName: IssuedReceipts
+    tableName: Example_IssuedReceipts
     expiration: P30D # Duration of time until rows expire
     generator: abcdefg12345678= # random base64-encoded binary sequence
     maxIssuedReceiptsPerPaymentId:
@@ -137,71 +133,70 @@ dynamoDbTables:
       GOOGLE_PLAY_BILLING: 1
       APPLE_APP_STORE: 1
   ecKeys:
-    tableName: Keys
+    tableName: Example_Keys
   ecSignedPreKeys:
-    tableName: EC_Signed_Pre_Keys
+    tableName: Example_EC_Signed_Pre_Keys
   pqKeys:
-    tableName: PQ_Keys
+    tableName: Example_PQ_Keys
   pagedPqKeys:
-    tableName: PQ_Paged_Keys
+    tableName: Example_PQ_Paged_Keys
   pqLastResortKeys:
-    tableName: PQ_Last_Resort_Keys
+    tableName: Example_PQ_Last_Resort_Keys
   messages:
-    tableName: Messages
+    tableName: Example_Messages
     expiration: P30D # Duration of time until rows expire
   onetimeDonations:
-    tableName: OnetimeDonations
+    tableName: Example_OnetimeDonations
     expiration: P90D
   phoneNumberIdentifiers:
-    tableName: PhoneNumberIdentifiers
+    tableName: Example_PhoneNumberIdentifiers
   profiles:
-    tableName: Profiles
+    tableName: Example_Profiles
   pushChallenge:
-    tableName: PushChallenge
+    tableName: Example_PushChallenge
   pushNotificationExperimentSamples:
-    tableName: PushNotificationExperimentSamples
+    tableName: Example_PushNotificationExperimentSamples
   redeemedReceipts:
-    tableName: RedeemedReceipts
+    tableName: Example_RedeemedReceipts
     expiration: P30D # Duration of time until rows expire
   registrationRecovery:
-    tableName: RegistrationRecovery
+    tableName: Example_RegistrationRecovery
     expiration: P300D # Duration of time until rows expire
   remoteConfig:
-    tableName: RemoteConfig
+    tableName: Example_RemoteConfig
   reportMessage:
-    tableName: ReportMessage
+    tableName: Example_ReportMessage
   scheduledJobs:
-    tableName: ScheduledJobs
+    tableName: Example_ScheduledJobs
     expiration: P7D
   subscriptions:
-    tableName: Subscriptions
+    tableName: Example_Subscriptions
   clientPublicKeys:
-    tableName: ClientPublicKeys
+    tableName: Example_ClientPublicKeys
   verificationSessions:
-    tableName: VerificationSessions
+    tableName: Example_VerificationSessions
 
 pagedSingleUseKEMPreKeyStore:
-  bucket: whisper-service-pre-key-store # S3 Bucket name
-  region: us-east-1                     # AWS region
+  bucket: preKeyBucket # S3 Bucket name
+  region: us-west-2    # AWS region
 
 cacheCluster: # Redis server configuration for cache cluster
-  configurationUri: redis://flatline-redis-0:6379/
+  configurationUri: redis://redis.example.com:6379/
 
 pubsub: # Redis server configuration for pubsub cluster
-  uri: redis://flatline-redis-0:6379/
+  uri: redis://redis.example.com:6379/
 
 pushSchedulerCluster: # Redis server configuration for push scheduler cluster
-  configurationUri: redis://flatline-redis-0:6379/
+  configurationUri: redis://redis.example.com:6379/
 
 rateLimitersCluster: # Redis server configuration for rate limiters cluster
-  configurationUri: redis://flatline-redis-0:6379/
+  configurationUri: redis://redis.example.com:6379/
 
 directoryV2:
   client: # Configuration for interfacing with Contact Discovery Service v2 cluster
     userAuthenticationTokenSharedSecret: secret://directoryV2.client.userAuthenticationTokenSharedSecret
     userIdTokenSharedSecret: secret://directoryV2.client.userIdTokenSharedSecret
 
-# Secure value recovery is disabled in the prototype.
 svr2:
   uri: svr2.example.com
   userAuthenticationTokenSharedSecret: secret://svr2.userAuthenticationTokenSharedSecret
@@ -230,10 +225,38 @@ svr2:
       AAAAAAAAAAAAAAAAAAAA
       -----END CERTIFICATE-----
 
+svrb:
+  uri: svrb.example.com
+  userAuthenticationTokenSharedSecret: secret://svrb.userAuthenticationTokenSharedSecret
+  userIdTokenSharedSecret: secret://svrb.userIdTokenSharedSecret
+  svrCaCertificates:
+    - |
+      -----BEGIN CERTIFICATE-----
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+      AAAAAAAAAAAAAAAAAAAA
+      -----END CERTIFICATE-----
+
 messageCache: # Redis server configuration for message store cache
   persistDelayMinutes: 1
   cluster:
-    configurationUri: redis://flatline-redis-0:6379/
+    configurationUri: redis://redis.example.com:6379/
 
 gcpAttachments: # GCP Storage configuration
   domain: example.com
@@ -243,21 +266,17 @@ gcpAttachments: # GCP Storage configuration
   rsaSigningKey: secret://gcpAttachments.rsaSigningKey
 
 tus:
-  uploadUri: http://flatline-tus/files
+  uploadUri: https://example.org/upload
   userAuthenticationTokenSharedSecret: secret://tus.userAuthenticationTokenSharedSecret
 
-# FLT(uoemai): Notification providers are replaced by a dummy logger during development.
-# Apple Push Notifications configuration
-apn:
+apn: # Apple Push Notifications configuration
   sandbox: true
   bundleId: com.example.textsecuregcm
   keyId: secret://apn.keyId
   teamId: secret://apn.teamId
   signingKey: secret://apn.signingKey
 
-# FLT(uoemai): Notification providers are replaced by a dummy logger during development.
-# FCM configuration
-fcm:
+fcm: # FCM configuration
   credentials: secret://fcm.credentials
 
 cdn:
@@ -265,7 +284,7 @@ cdn:
   credentials:
     accessKeyId: secret://cdn.accessKey
     secretAccessKey: secret://cdn.accessSecret
-  region: us-east-1  # AWS region
+  region: us-west-2  # AWS region
 
 cdn3StorageManager:
   baseUri: https://storage-manager.example.com
@@ -277,7 +296,12 @@ cdn3StorageManager:
 
 dogstatsd:
   environment: dev
-  host: flatline-otel-collector
+  host: 127.0.0.1
+
+openTelemetry:
+  enabled: true
+  environment: dev
+  url: http://127.0.0.1:4318/
 
 unidentifiedDelivery:
   certificate: CgIIAQ==
@@ -325,9 +349,9 @@ backupsZkConfig:
   serverSecret: secret://backupsZkConfig.serverSecret
 
 dynamicConfig:
-  s3Region: us-east-1
-  s3Bucket: whisper-service-dynamic-config
-  objectKey: dev.yml
+  s3Region: a-region
+  s3Bucket: a-bucket
+  objectKey: dynamic-config.yaml
   maxSize: 100000
   refreshInterval: PT10S
 
@@ -407,14 +431,37 @@ oneTimeDonations:
         - '40'
 
 registrationService:
-  host: flatline-registration-service
-  port: 50051
-  credentialConfigurationJson: irrelevant # Uses fake credentials during development.
-  identityTokenAudience: irrelevant # Uses fake credentials during development.
+  host: registration.example.com
+  port: 443
+  credentialConfigurationJson: |
+    {
+      "example": "example"
+    }
+  identityTokenAudience: https://registration.example.com
   collationKeySalt: secret://registrationService.collationKeySalt
-  registrationCaCertificate: irrelenvat # Uses insecure channel during development.
+  registrationCaCertificate: | # Registration service TLS certificate trust root
+    -----BEGIN CERTIFICATE-----
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    ABCDEFGHIJKLMNOPQRSTUVWXYZ/0123456789+abcdefghijklmnopqrstuvwxyz
+    AAAAAAAAAAAAAAAAAAAA
+    -----END CERTIFICATE-----
 
-# Key transparency is disabled in the prototype.
 keyTransparencyService:
   host: kt.example.com
   port: 443
@@ -485,8 +532,8 @@ linkDevice:
 noiseTunnel:
   webSocketPort: 8444
   directPort: 8445
-  tlsKeyStoreFile: /usr/share/signal/noise-tunnel-keystore.p12
-  tlsKeyStoreEntryAlias: flatline
+  tlsKeyStoreFile: /path/to/file.p12
+  tlsKeyStoreEntryAlias: example.com
   tlsKeyStorePassword: secret://noiseTunnel.tlsKeyStorePassword
   noiseStaticPrivateKey: secret://noiseTunnel.noiseStaticPrivateKey
   recognizedProxySecret: secret://noiseTunnel.recognizedProxySecret

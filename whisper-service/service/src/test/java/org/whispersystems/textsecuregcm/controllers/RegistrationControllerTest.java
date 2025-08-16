@@ -7,7 +7,6 @@ package org.whispersystems.textsecuregcm.controllers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -32,6 +31,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -54,7 +54,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junitpioneer.jupiter.cartesian.ArgumentSets;
 import org.junitpioneer.jupiter.cartesian.CartesianTest;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.PhoneVerificationTokenManager;
 import org.whispersystems.textsecuregcm.auth.RegistrationLockError;
@@ -519,7 +518,7 @@ class RegistrationControllerTest {
     }
   }
 
-  static Stream<Arguments> atomicAccountCreationConflictingChannel() {
+  static List<Arguments> atomicAccountCreationConflictingChannel() {
     final IdentityKey aciIdentityKey;
     final IdentityKey pniIdentityKey;
     final ECSignedPreKey aciSignedPreKey;
@@ -527,8 +526,8 @@ class RegistrationControllerTest {
     final KEMSignedPreKey aciPqLastResortPreKey;
     final KEMSignedPreKey pniPqLastResortPreKey;
     {
-      final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
       aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
       pniIdentityKey = new IdentityKey(pniIdentityKeyPair.getPublicKey());
@@ -544,48 +543,48 @@ class RegistrationControllerTest {
     final AccountAttributes pushAccountAttributes =
         new AccountAttributes(false, 1, 1, "test".getBytes(StandardCharsets.UTF_8), null, true, Set.of());
 
-    return Stream.of(
-        // "Fetches messages" is true, but an APNs token is provided
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            fetchesMessagesAccountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.of(new ApnRegistrationId("apns-token")),
-            Optional.empty())),
+    return List.of(
+        Arguments.argumentSet("\"Fetches messages\" is true, but an APNs token is provided",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                fetchesMessagesAccountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.of(new ApnRegistrationId("apns-token")),
+                    Optional.empty()))),
 
-        // "Fetches messages" is true, but an FCM (GCM) token is provided
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            fetchesMessagesAccountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.of(new GcmRegistrationId("gcm-token")))),
+        Arguments.argumentSet("\"Fetches messages\" is true, but an FCM (GCM) token is provided",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                fetchesMessagesAccountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.of(new GcmRegistrationId("gcm-token"))))),
 
-        // "Fetches messages" is false, but multiple types of push tokens are provided
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            pushAccountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.of(new ApnRegistrationId("apns-token")),
-            Optional.of(new GcmRegistrationId("gcm-token"))))
+        Arguments.argumentSet("\"Fetches messages\" is false, but multiple types of push tokens are provided",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                pushAccountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.of(new ApnRegistrationId("apns-token")),
+                    Optional.of(new GcmRegistrationId("gcm-token")))))
     );
   }
 
@@ -608,7 +607,7 @@ class RegistrationControllerTest {
     }
   }
 
-  static Stream<Arguments> atomicAccountCreationPartialSignedPreKeys() {
+  static List<Arguments> atomicAccountCreationPartialSignedPreKeys() {
     final IdentityKey aciIdentityKey;
     final IdentityKey pniIdentityKey;
     final ECSignedPreKey aciSignedPreKey;
@@ -616,8 +615,8 @@ class RegistrationControllerTest {
     final KEMSignedPreKey aciPqLastResortPreKey;
     final KEMSignedPreKey pniPqLastResortPreKey;
     {
-      final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
       aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
       pniIdentityKey = new IdentityKey(pniIdentityKeyPair.getPublicKey());
@@ -630,90 +629,90 @@ class RegistrationControllerTest {
     final AccountAttributes accountAttributes =
         new AccountAttributes(true, 1, 1, "test".getBytes(StandardCharsets.UTF_8), null, true, Set.of());
 
-    return Stream.of(
-        // Signed PNI EC pre-key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            null,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.empty())),
+    return List.of(
+        Arguments.argumentSet("Signed PNI EC pre-key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    null,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty()))),
 
-        // Signed ACI EC pre-key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            null,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.empty())),
+        Arguments.argumentSet("Signed ACI EC pre-key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(null,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty()))),
 
-        // Signed PNI KEM pre-key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            null,
-            Optional.empty(),
-            Optional.empty())),
+        Arguments.argumentSet("Signed PNI KEM pre-key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    null,
+                    Optional.empty(),
+                    Optional.empty()))),
 
-        // Signed ACI KEM pre-key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            aciIdentityKey,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            null,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.empty())),
+        Arguments.argumentSet("Signed ACI KEM pre-key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                aciIdentityKey,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    null,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty()))),
 
-        // All signed pre-keys are present, but ACI identity key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            null,
-            pniIdentityKey,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.empty())),
+        Arguments.argumentSet("All signed pre-keys are present, but ACI identity key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                null,
+                pniIdentityKey,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty()))),
 
-        // All signed pre-keys are present, but PNI identity key is missing
-        Arguments.of(new RegistrationRequest("session-id",
-            new byte[0],
-            accountAttributes,
-            true,
-            aciIdentityKey,
-            null,
-            aciSignedPreKey,
-            pniSignedPreKey,
-            aciPqLastResortPreKey,
-            pniPqLastResortPreKey,
-            Optional.empty(),
-            Optional.empty()))
+        Arguments.argumentSet("All signed pre-keys are present, but PNI identity key is missing",
+            new RegistrationRequest("session-id",
+                new byte[0],
+                accountAttributes,
+                true,
+                aciIdentityKey,
+                null,
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty())))
     );
   }
 
@@ -789,7 +788,7 @@ class RegistrationControllerTest {
     try (Response response = request.post(Entity.json(requestJson("sessionId")))) {
       assertEquals(200, response.getStatus());
       final AccountCreationResponse creationResponse = response.readEntity(AccountCreationResponse.class);
-      assertEquals(existingAccount, creationResponse.isReregistration());
+      assertEquals(existingAccount, creationResponse.reregistration());
     }
   }
 
@@ -806,7 +805,7 @@ class RegistrationControllerTest {
         && Objects.equals(a.recoveryPassword(), b.recoveryPassword());
   }
 
-  private static Stream<Arguments> atomicAccountCreationSuccess() {
+  private static List<Arguments> atomicAccountCreationSuccess() {
     final IdentityKey aciIdentityKey;
     final IdentityKey pniIdentityKey;
     final ECSignedPreKey aciSignedPreKey;
@@ -814,8 +813,8 @@ class RegistrationControllerTest {
     final KEMSignedPreKey aciPqLastResortPreKey;
     final KEMSignedPreKey pniPqLastResortPreKey;
     {
-      final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
       aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
       pniIdentityKey = new IdentityKey(pniIdentityKeyPair.getPublicKey());
@@ -840,20 +839,20 @@ class RegistrationControllerTest {
     final String apnsToken = "apns-token";
     final String gcmToken = "gcm-token";
 
-    return Stream.of(
-        // Fetches messages; no push tokens
-        Arguments.of(new RegistrationRequest("session-id",
+    return List.of(
+        Arguments.argumentSet("Fetches messages; no push tokens",
+            new RegistrationRequest("session-id",
                 new byte[0],
                 fetchesMessagesAccountAttributes,
                 true,
                 aciIdentityKey,
                 pniIdentityKey,
-                aciSignedPreKey,
-                pniSignedPreKey,
-                aciPqLastResortPreKey,
-                pniPqLastResortPreKey,
-                Optional.empty(),
-                Optional.empty()),
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.empty())),
             aciIdentityKey,
             pniIdentityKey,
             new DeviceSpec(
@@ -871,19 +870,19 @@ class RegistrationControllerTest {
                 aciPqLastResortPreKey,
                 pniPqLastResortPreKey)),
 
-        // Has APNs tokens
-        Arguments.of(new RegistrationRequest("session-id",
+        Arguments.argumentSet("Has APNs tokens",
+            new RegistrationRequest("session-id",
                 new byte[0],
                 pushAccountAttributes,
                 true,
                 aciIdentityKey,
                 pniIdentityKey,
-                aciSignedPreKey,
-                pniSignedPreKey,
-                aciPqLastResortPreKey,
-                pniPqLastResortPreKey,
-                Optional.of(new ApnRegistrationId(apnsToken)),
-                Optional.empty()),
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.of(new ApnRegistrationId(apnsToken)),
+                    Optional.empty())),
             aciIdentityKey,
             pniIdentityKey,
             new DeviceSpec(
@@ -901,19 +900,19 @@ class RegistrationControllerTest {
                 aciPqLastResortPreKey,
                 pniPqLastResortPreKey)),
 
-        // Has GCM token
-        Arguments.of(new RegistrationRequest("session-id",
+        Arguments.argumentSet("Has GCM token",
+            new RegistrationRequest("session-id",
                 new byte[0],
                 pushAccountAttributes,
                 true,
                 aciIdentityKey,
                 pniIdentityKey,
-                aciSignedPreKey,
-                pniSignedPreKey,
-                aciPqLastResortPreKey,
-                pniPqLastResortPreKey,
-                Optional.empty(),
-                Optional.of(new GcmRegistrationId(gcmToken))),
+                new DeviceActivationRequest(aciSignedPreKey,
+                    pniSignedPreKey,
+                    aciPqLastResortPreKey,
+                    pniPqLastResortPreKey,
+                    Optional.empty(),
+                    Optional.of(new GcmRegistrationId(gcmToken)))),
             aciIdentityKey,
             pniIdentityKey,
             new DeviceSpec(
@@ -942,8 +941,8 @@ class RegistrationControllerTest {
       final int registrationId,
       int pniRegistrationId) {
 
-    final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
     final IdentityKey aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
     final IdentityKey pniIdentityKey = new IdentityKey(pniIdentityKeyPair.getPublicKey());
@@ -965,7 +964,6 @@ class RegistrationControllerTest {
             KeysHelper.signedKEMPreKey(4, pniIdentityKeyPair),
             Optional.empty(),
             Optional.empty()));
-
     try {
       return SystemMapper.jsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(request);
     } catch (final JsonProcessingException e) {

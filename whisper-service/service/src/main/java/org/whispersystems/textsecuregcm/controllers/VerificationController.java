@@ -178,11 +178,11 @@ public class VerificationController {
       throws RateLimitExceededException, ObsoletePhoneNumberFormatException {
 
     final Pair<String, PushNotification.TokenType> pushTokenAndType = validateAndExtractPushToken(
-        request.getUpdateVerificationSessionRequest());
+        request.updateVerificationSessionRequest());
 
     final Phonenumber.PhoneNumber phoneNumber;
     try {
-      phoneNumber = Util.canonicalizePhoneNumber(PhoneNumberUtil.getInstance().parse(request.getNumber(), null));
+      phoneNumber = Util.canonicalizePhoneNumber(PhoneNumberUtil.getInstance().parse(request.number(), null));
     } catch (final NumberParseException e) {
       throw new ServerErrorException("could not parse already validated number", Response.Status.INTERNAL_SERVER_ERROR);
     }
@@ -192,7 +192,7 @@ public class VerificationController {
       final String sourceHost = (String) requestContext.getProperty(RemoteAddressFilter.REMOTE_ADDRESS_ATTRIBUTE_NAME);
 
       registrationServiceSession = registrationServiceClient.createRegistrationSession(phoneNumber, sourceHost,
-          accountsManager.getByE164(request.getNumber()).isPresent(),
+          accountsManager.getByE164(request.number()).isPresent(),
           REGISTRATION_RPC_TIMEOUT).join();
     } catch (final CancellationException e) {
 
@@ -210,14 +210,10 @@ public class VerificationController {
         Collections.emptyList(), null, null, false,
         clock.millis(), clock.millis(), registrationServiceSession.expiration());
 
-    // FLT(uoemai): Use dummy verification handler during development.
-    // Original: verificationSession = handlePushToken(pushTokenAndType, verificationSession);
-    verificationSession = handleDummy(verificationSession);
-
+    verificationSession = handlePushToken(pushTokenAndType, verificationSession);
     // unconditionally request a captcha -- it will either be the only requested information, or a fallback
     // if a push challenge sent in `handlePushToken` doesn't arrive in time
-    // FLT(uoemai): Disable captcha verification during development.
-    // verificationSession.requestedInformation().add(VerificationSession.Information.CAPTCHA);
+    verificationSession.requestedInformation().add(VerificationSession.Information.CAPTCHA);
 
     storeVerificationSession(registrationServiceSession, verificationSession);
 
@@ -267,9 +263,6 @@ public class VerificationController {
 
     try {
       // these handle* methods ordered from least likely to fail to most, so take care when considering a change
-
-      // FLT(uoemai): Use dummy handler as the first verification method during development.
-      verificationSession = handleDummy(verificationSession);
 
       verificationSession = verificationCheck.updatedSession().orElse(verificationSession);
 
@@ -475,20 +468,6 @@ public class VerificationController {
     }
 
     return verificationSession;
-  }
-
-  // FLT(uoemai): Dummy handler that always succeeds and allows requesting a verification code.
-  private VerificationSession handleDummy(VerificationSession verificationSession) {
-    // FLT(uoemai): The dummy handler never requires any additional information.
-    final List<VerificationSession.Information> requestedInformation = new ArrayList<>(
-        verificationSession.requestedInformation());
-    requestedInformation.remove(VerificationSession.Information.PUSH_CHALLENGE);
-    requestedInformation.remove(VerificationSession.Information.CAPTCHA);
-
-    return new VerificationSession(verificationSession.pushChallenge(), requestedInformation,
-        null, verificationSession.smsSenderOverride(), verificationSession.voiceSenderOverride(),
-        true, verificationSession.createdTimestamp(), clock.millis(),
-        verificationSession.remoteExpirationSeconds());
   }
 
   @GET

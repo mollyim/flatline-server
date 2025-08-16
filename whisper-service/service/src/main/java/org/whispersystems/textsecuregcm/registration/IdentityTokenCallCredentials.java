@@ -4,9 +4,7 @@
  */
 package org.whispersystems.textsecuregcm.registration;
 
-import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.ExternalAccountCredentials;
-import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ImpersonatedCredentials;
 import com.google.common.annotations.VisibleForTesting;
 import io.dropwizard.lifecycle.Managed;
@@ -21,7 +19,6 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -41,7 +38,7 @@ public class IdentityTokenCallCredentials extends CallCredentials implements Man
   private static final Logger logger = LoggerFactory.getLogger(IdentityTokenCallCredentials.class);
 
   private final Retry retry;
-  private final GoogleCredentials impersonatedCredentials;
+  private final ImpersonatedCredentials impersonatedCredentials;
   private final String audience;
   private final ScheduledFuture<?> scheduledFuture;
 
@@ -49,7 +46,7 @@ public class IdentityTokenCallCredentials extends CallCredentials implements Man
 
   IdentityTokenCallCredentials(
       final RetryConfig retryConfig,
-      final GoogleCredentials impersonatedCredentials,
+      final ImpersonatedCredentials impersonatedCredentials,
       final String audience,
       final ScheduledExecutorService scheduledExecutorService) {
     this.impersonatedCredentials = impersonatedCredentials;
@@ -67,15 +64,9 @@ public class IdentityTokenCallCredentials extends CallCredentials implements Man
       final ScheduledExecutorService scheduledExecutorService) throws IOException {
     try (final InputStream configInputStream = new ByteArrayInputStream(
         credentialConfigJson.getBytes(StandardCharsets.UTF_8))) {
-      // FLT(uoemai): Use fake access token for self-hosted development.
-      // final ExternalAccountCredentials credentials = ExternalAccountCredentials.fromStream(configInputStream);
-      // final ImpersonatedCredentials impersonatedCredentials = ImpersonatedCredentials.create(credentials,
-      //    credentials.getServiceAccountEmail(), null, List.of(), (int) IDENTITY_TOKEN_LIFETIME.toSeconds());
-      AccessToken fakeToken = new AccessToken("fake-token",
-          new Date(System.currentTimeMillis() + 3600_000));
-      GoogleCredentials impersonatedCredentials = GoogleCredentials.newBuilder()
-          .setAccessToken(fakeToken)
-          .build();
+      final ExternalAccountCredentials credentials = ExternalAccountCredentials.fromStream(configInputStream);
+      final ImpersonatedCredentials impersonatedCredentials = ImpersonatedCredentials.create(credentials,
+          credentials.getServiceAccountEmail(), null, List.of(), (int) IDENTITY_TOKEN_LIFETIME.toSeconds());
 
       final IdentityTokenCallCredentials identityTokenCallCredentials = new IdentityTokenCallCredentials(
           RetryConfig.custom()
@@ -95,14 +86,21 @@ public class IdentityTokenCallCredentials extends CallCredentials implements Man
   @VisibleForTesting
   void refreshIdentityToken() {
     retry.executeRunnable(() -> {
-      // FLT(uoemai): Use fake identity token for self-hosted development.
-      // impersonatedCredentials.getSourceCredentials().refresh();
-      // this.currentIdentityToken = Pair.of(
-      //    impersonatedCredentials.idTokenWithAudience(audience, null).getTokenValue(),
-      //    null);
-      this.currentIdentityToken = Pair.of(
-          "fake-identity-token",
-          null);
+      try {
+        impersonatedCredentials.getSourceCredentials().refresh();
+        this.currentIdentityToken = Pair.of(
+            impersonatedCredentials.idTokenWithAudience(audience, null).getTokenValue(),
+            null);
+      } catch (final IOException e) {
+        logger.warn("Failed to retrieve identity token", e);
+        final UncheckedIOException wrapped = new UncheckedIOException(e);
+        this.currentIdentityToken = Pair.of(null, wrapped);
+        throw wrapped;
+      } catch (final RuntimeException e) {
+        logger.error("Failed to retrieve identity token", e);
+        this.currentIdentityToken = Pair.of(null, e);
+        throw e;
+      }
     });
   }
 

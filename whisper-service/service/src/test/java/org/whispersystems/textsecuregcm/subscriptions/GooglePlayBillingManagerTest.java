@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +43,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.storage.SubscriptionException;
 import org.whispersystems.textsecuregcm.util.CompletableFutureTestUtil;
 import org.whispersystems.textsecuregcm.util.MockUtils;
@@ -132,7 +134,7 @@ class GooglePlayBillingManagerTest {
   }
 
   @ParameterizedTest
-  @EnumSource(mode = EnumSource.Mode.EXCLUDE, names = {"ACTIVE"})
+  @EnumSource
   public void rejectInactivePurchase(GooglePlayBillingManager.SubscriptionState subscriptionState) throws IOException {
     when(subscriptionsv2Get.execute()).thenReturn(new SubscriptionPurchaseV2()
         .setAcknowledgementState(GooglePlayBillingManager.AcknowledgementState.PENDING.apiString())
@@ -141,9 +143,12 @@ class GooglePlayBillingManagerTest {
             .setExpiryTime(Instant.now().plus(Duration.ofDays(1)).toString())
             .setProductId(PRODUCT_ID))));
 
-    CompletableFutureTestUtil.assertFailsWithCause(
-        SubscriptionException.PaymentRequired.class,
-        googlePlayBillingManager.validateToken(PURCHASE_TOKEN));
+    final CompletableFuture<GooglePlayBillingManager.ValidatedToken> future = googlePlayBillingManager
+        .validateToken(PURCHASE_TOKEN);
+    switch (subscriptionState) {
+      case ACTIVE, IN_GRACE_PERIOD, CANCELED -> assertThatNoException().isThrownBy(() -> future.join());
+      default -> CompletableFutureTestUtil.assertFailsWithCause(SubscriptionException.PaymentRequired.class, future);
+    }
   }
 
   @Test
@@ -189,6 +194,15 @@ class GooglePlayBillingManagerTest {
     assertThatNoException().isThrownBy(() ->
         googlePlayBillingManager.cancelAllActiveSubscriptions(PURCHASE_TOKEN).join());
     verifyNoInteractions(cancel);
+  }
+
+  @Test
+  public void handle429() throws IOException {
+    final HttpResponseException mockException = mock(HttpResponseException.class);
+    when(mockException.getStatusCode()).thenReturn(429);
+    when(subscriptionsv2Get.execute()).thenThrow(mockException);
+    CompletableFutureTestUtil.assertFailsWithCause(
+        RateLimitExceededException.class, googlePlayBillingManager.getSubscriptionInformation(PURCHASE_TOKEN));
   }
 
   @Test

@@ -32,15 +32,17 @@ public final class MessageMetrics {
       "mismatchedAccountEnvelopeUuid");
 
   public static final String DELIVERY_LATENCY_TIMER_NAME = name(MessageMetrics.class, "deliveryLatency");
+  private final Duration messageTtl;
   private final MeterRegistry metricRegistry;
 
   @VisibleForTesting
-  MessageMetrics(final MeterRegistry metricRegistry) {
+  MessageMetrics(final MeterRegistry metricRegistry, final Duration messageTtl) {
     this.metricRegistry = metricRegistry;
+    this.messageTtl = messageTtl;
   }
 
-  public MessageMetrics() {
-    this(Metrics.globalRegistry);
+  public MessageMetrics(final Duration messageTtl) {
+    this(Metrics.globalRegistry, messageTtl);
   }
 
   public void measureAccountOutgoingMessageUuidMismatches(final Account account,
@@ -83,10 +85,13 @@ public final class MessageMetrics {
     tags.add(Tag.of("isUrgent", String.valueOf(isUrgent)));
     tags.add(Tag.of("isEphemeral", String.valueOf(isEphemeral)));
 
-    UserAgentTagUtil.getClientVersionTag(userAgent, clientReleaseManager).ifPresent(tags::add);
+    // This tag makes the metric extremely expensive on some platforms
+    // UserAgentTagUtil.getClientVersionTag(userAgent, clientReleaseManager).ifPresent(tags::add);
 
     Timer.builder(DELIVERY_LATENCY_TIMER_NAME)
         .publishPercentileHistogram(true)
+        .minimumExpectedValue(Duration.ofSeconds(1))
+        .maximumExpectedValue(messageTtl)
         .tags(tags)
         .register(metricRegistry)
         .record(Duration.between(Instant.ofEpochMilli(serverTimestamp), Instant.now()));

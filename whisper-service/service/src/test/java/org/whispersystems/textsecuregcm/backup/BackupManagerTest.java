@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.whispersystems.textsecuregcm.util.MockUtils.randomSecretBytes;
 
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -36,6 +37,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,11 +45,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -62,8 +61,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junitpioneer.jupiter.cartesian.CartesianTest;
 import org.signal.libsignal.protocol.InvalidKeyException;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
+import org.signal.libsignal.protocol.ecc.ECPrivateKey;
 import org.signal.libsignal.zkgroup.GenericServerSecretParams;
 import org.signal.libsignal.zkgroup.VerificationFailedException;
 import org.signal.libsignal.zkgroup.backups.BackupAuthCredentialPresentation;
@@ -71,9 +70,13 @@ import org.signal.libsignal.zkgroup.backups.BackupCredentialType;
 import org.signal.libsignal.zkgroup.backups.BackupLevel;
 import org.whispersystems.textsecuregcm.attachments.TusAttachmentGenerator;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedBackupUser;
+import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentials;
+import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentialsGenerator;
+import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
 import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.limits.RateLimiter;
 import org.whispersystems.textsecuregcm.limits.RateLimiters;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtension;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtensionSchema;
 import org.whispersystems.textsecuregcm.util.AttributeValues;
@@ -107,6 +110,18 @@ public class BackupManagerTest {
   private final byte[] backupKey = TestRandomUtil.nextBytes(32);
   private final UUID aci = UUID.randomUUID();
 
+
+  private static final SecureValueRecoveryConfiguration CFG = new SecureValueRecoveryConfiguration(
+      "",
+      randomSecretBytes(32),
+      randomSecretBytes(32),
+      null,
+      null,
+      null);
+  private final ExternalServiceCredentialsGenerator svrbCredentialGenerator =
+      SecureValueRecoveryBCredentialsGeneratorFactory.svrbCredentialsGenerator(CFG, testClock);
+  private final SecureValueRecoveryClient svrbClient = mock(SecureValueRecoveryClient.class);
+
   private BackupManager backupManager;
   private BackupsDb backupsDb;
 
@@ -131,6 +146,8 @@ public class BackupManagerTest {
         tusAttachmentGenerator,
         tusCredentialGenerator,
         remoteStorageManager,
+        svrbCredentialGenerator,
+        svrbClient,
         testClock);
   }
 
@@ -306,7 +323,7 @@ public class BackupManagerTest {
         GenericServerSecretParams.generate(),
         BackupLevel.FREE, backupKey, aci);
 
-    final ECKeyPair keyPair = Curve.generateKeyPair();
+    final ECKeyPair keyPair = ECKeyPair.generate();
 
     // haven't set a public key yet, but should fail before hitting the database anyway
     assertThatExceptionOfType(StatusRuntimeException.class)
@@ -328,7 +345,7 @@ public class BackupManagerTest {
         GenericServerSecretParams.generate(),
         BackupLevel.FREE, backupKey, aci);
 
-    final ECKeyPair keyPair = Curve.generateKeyPair();
+    final ECKeyPair keyPair = ECKeyPair.generate();
     backupManager.setPublicKey(
         presentation,
         keyPair.getPrivateKey().calculateSignature(presentation.serialize()),
@@ -349,7 +366,7 @@ public class BackupManagerTest {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
 
-    final ECKeyPair keyPair = Curve.generateKeyPair();
+    final ECKeyPair keyPair = ECKeyPair.generate();
     final byte[] signature = keyPair.getPrivateKey().calculateSignature(presentation.serialize());
 
     // haven't set a public key yet
@@ -365,8 +382,8 @@ public class BackupManagerTest {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
 
-    final ECKeyPair keyPair1 = Curve.generateKeyPair();
-    final ECKeyPair keyPair2 = Curve.generateKeyPair();
+    final ECKeyPair keyPair1 = ECKeyPair.generate();
+    final ECKeyPair keyPair2 = ECKeyPair.generate();
     final byte[] signature1 = keyPair1.getPrivateKey().calculateSignature(presentation.serialize());
     final byte[] signature2 = keyPair2.getPrivateKey().calculateSignature(presentation.serialize());
 
@@ -388,7 +405,7 @@ public class BackupManagerTest {
     final BackupAuthCredentialPresentation presentation = backupAuthTestUtil.getPresentation(
         BackupLevel.FREE, backupKey, aci);
 
-    final ECKeyPair keyPair = Curve.generateKeyPair();
+    final ECKeyPair keyPair = ECKeyPair.generate();
     final byte[] signature = keyPair.getPrivateKey().calculateSignature(presentation.serialize());
 
     // an invalid signature
@@ -423,7 +440,7 @@ public class BackupManagerTest {
     testClock.pin(Instant.ofEpochSecond(1).plus(Duration.ofDays(1)));
     final BackupAuthCredentialPresentation oldCredential = backupAuthTestUtil.getPresentation(BackupLevel.FREE,
         backupKey, aci);
-    final ECKeyPair keyPair = Curve.generateKeyPair();
+    final ECKeyPair keyPair = ECKeyPair.generate();
     final byte[] signature = keyPair.getPrivateKey().calculateSignature(oldCredential.serialize());
     backupManager.setPublicKey(oldCredential, signature, keyPair.getPublicKey()).join();
 
@@ -697,9 +714,13 @@ public class BackupManagerTest {
 
     testClock.pin(Instant.ofEpochSecond(10));
 
+    when(svrbClient.removeData(anyString())).thenReturn(CompletableFuture.completedFuture(null));
+
     // Deleting should swap the backupDir for the user
     backupManager.deleteEntireBackup(original).join();
     verifyNoInteractions(remoteStorageManager);
+    verify(svrbClient).removeData(HexFormat.of().formatHex(BackupsDb.hashedBackupId(original.backupId())));
+
     final AuthenticatedBackupUser after = retrieveBackupUser(original.backupId(), BackupCredentialType.MESSAGES, BackupLevel.PAID);
     assertThat(original.backupDir()).isNotEqualTo(after.backupDir());
     assertThat(original.mediaDir()).isNotEqualTo(after.mediaDir());
@@ -959,11 +980,15 @@ public class BackupManagerTest {
             new RemoteStorageManager.ListResult.Entry("ghi", 1)), Optional.empty())));
     when(remoteStorageManager.delete(anyString())).thenReturn(CompletableFuture.completedFuture(1L));
 
+    when(svrbClient.removeData(anyString())).thenReturn(CompletableFuture.completedFuture(null));
+
     backupManager.expireBackup(expiredBackup(expirationType, backupUser)).join();
     verify(remoteStorageManager, times(1)).list(anyString(), any(), anyLong());
     verify(remoteStorageManager, times(1)).delete(expectedPrefixToDelete + "abc");
     verify(remoteStorageManager, times(1)).delete(expectedPrefixToDelete + "def");
     verify(remoteStorageManager, times(1)).delete(expectedPrefixToDelete + "ghi");
+    verify(svrbClient, times(expirationType == ExpiredBackup.ExpirationType.ALL ? 1 : 0))
+        .removeData(HexFormat.of().formatHex(BackupsDb.hashedBackupId(backupUser.backupId())));
     verifyNoMoreInteractions(remoteStorageManager);
 
     final BackupsDb.TimestampedUsageInfo usage = backupsDb.getMediaUsage(backupUser).join();
@@ -1018,6 +1043,32 @@ public class BackupManagerTest {
     verify(remoteStorageManager, times(1)).delete(mediaPrefix + "def");
     verify(remoteStorageManager, times(1)).delete(mediaPrefix + "ghi");
     verifyNoMoreInteractions(remoteStorageManager);
+  }
+
+  @ParameterizedTest
+  @EnumSource(BackupLevel.class)
+  void svrbAuthValid(BackupLevel backupLevel) {
+    testClock.pin(Instant.ofEpochSecond(123));
+    final AuthenticatedBackupUser backupUser =
+        backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MESSAGES, backupLevel);
+    final ExternalServiceCredentials creds = backupManager.generateSvrbAuth(backupUser);
+
+    assertThat(HexFormat.of().parseHex(creds.username())).hasSize(16);
+    final String[] split = creds.password().split(":", 2);
+    assertThat(Long.parseLong(split[0])).isEqualTo(123);
+  }
+
+  @ParameterizedTest
+  @EnumSource(BackupLevel.class)
+  void svrbAuthInvalid(BackupLevel backupLevel) {
+    // Can't use MEDIA for svrb auth
+    final AuthenticatedBackupUser backupUser =
+        backupUser(TestRandomUtil.nextBytes(16), BackupCredentialType.MEDIA, backupLevel);
+    assertThatExceptionOfType(StatusRuntimeException.class)
+        .isThrownBy(() -> backupManager.generateSvrbAuth(backupUser))
+        .extracting(StatusRuntimeException::getStatus)
+        .extracting(Status::getCode)
+        .isEqualTo(Status.Code.UNAUTHENTICATED);
   }
 
   private CopyResult copyError(final AuthenticatedBackupUser backupUser, Throwable copyException) {
@@ -1091,7 +1142,7 @@ public class BackupManagerTest {
     byte[] privateKey = new byte[32];
     ByteBuffer.wrap(privateKey).put(backupId);
     try {
-      backupsDb.setPublicKey(backupId, backupLevel, Curve.decodePrivatePoint(privateKey).publicKey()).join();
+      backupsDb.setPublicKey(backupId, backupLevel, new ECPrivateKey(privateKey).publicKey()).join();
     } catch (InvalidKeyException e) {
       throw new RuntimeException(e);
     }
