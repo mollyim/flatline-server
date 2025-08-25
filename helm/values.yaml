@@ -458,32 +458,3 @@ traefikResources:
     # optionsName can be used to reference existing options to use for TLS termination. Optional.
     # When not set, Traefik defaults are used.
     optionsName: ""
-# registry defines the values for a container registry intended for local development.
-# Enable this component to use locally build Flatline images in Kubernetes without an existing registry.
-# Warning: This registry is insecure, it lacks authentication and encryption in transit.
-registry:
-  enabled: false 
-  image:
-    repository: docker.io/library/registry
-    tag: 3.0.0
-    pullPolicy: IfNotPresent
-  replicaCount: 1
-  service:
-    type: LoadBalancer 
-    ports:
-      default:
-        port: 5000
-        protocol: TCP
-  persistence:
-    # storageClassName defines the storage class that will be used by the created persistent volume. Optional.
-    # When not set, the global "defaultStorageClass" will be used.
-    storageClassName: ""
-    accessModes:
-      - ReadWriteOnce
-    size: 30Gi
-  volumeMounts:
-    - name: data
-      mountPath: /var/lib/registry
-      readOnly: false
-      persistentVolumeClaim:
-        claimName: "{{ include \"common.fullnameWithComponent\" . }}"

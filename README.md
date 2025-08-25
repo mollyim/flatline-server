@@ -195,15 +195,17 @@ You can read about [how to override values with Helm](https://helm.sh/docs/helm/
 
 #### Development on Kubernetes
 
-When building images locally for use in Kubernetes, a container image registry is required.
+Kubernetes expects container images to be served from a container registry.
 
-For convenience during local testing, an **insecure** registry can be enabled by the Flatline chart:
+You can deploy a simple container registry with the [Distribution Registry](https://distribution.github.io/distribution/) container image.
+
+For example, to deploy an **insecure** registry for local testing:
 
 ```bash
-helm upgrade --set registry.enabled=true $HELM_RELEASE ./helm
+docker run -d -p 5000:5000 --restart=always --name registry -v /tmp/registry:/var/lib/registry registry:3
 ```
 
-When building with Maven, push container images to a registry. For example:
+When building with Maven, push the resulting container images to a registry. For example:
 
 ```bash
 # Whisper Service
@@ -248,13 +250,11 @@ When building with Maven, push container images to a registry. For example:
   -Djib.allowInsecureRegistries=true
 ```
 
-After that, you can override the Helm image values for each component to use these locally built images.
+Once the images are on the registry, override the Helm image values to reference these images.
 
-For example, to use locally built images for every component, create `local.yaml` with the following:
+For example, to do this for every core Flatline component, create `local.yaml` with the following:
 
 ```yaml
-registry:
-  enabled: true
 whisperService:
   image:
     repository: localhost:5000/flatline-whisper-service
