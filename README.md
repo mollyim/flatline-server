@@ -138,7 +138,150 @@ As configured for this prototype, the verification code is always the last six d
   -Djib.to.image="flatline-contact-discovery-service:dev"
 ```
 
-### Running
+### Running with Kubernetes
+
+The recommended method of installing Flatline is with [Helm](https://helm.sh) on [Kubernetes](https://kubernetes.io).
+
+However, this method is currently still intended to provide a testing environment, not a production one.
+
+Although the Helm chart can be installed on any cluster, it defaults to targeting single-node [`k3s`](https://docs.k3s.io/quick-start) clusters.
+
+#### Install Kubernetes
+
+If you do not have a Kubernetes cluster available, install a lightweight distribution such as [`k3s`](https://docs.k3s.io/quick-start).
+
+After installing `k3s`, you may want to enable your non-root user to connect to the cluster:
+
+```bash
+mkdir -p $HOME/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+chmod 600 $HOME/.kube/config
+
+echo 'export KUBECONFIG=$HOME/.kube/config' >> $HOME/.profile
+source $HOME/.profile
+```
+
+#### Deploy the Helm Chart
+
+From a client configured to the target Kubernetes cluster, clone the repository and install the chart.
+
+This process will install Flatline for local testing, with bundled sample configurations and "secrets".
+
+To deviate from these steps, review the [`values.yaml`](helm/values.yaml) file for defaults and [customization](#customizing-the-installation) options.
+
+```bash
+HELM_RELEASE=dev # Optional: Replace "dev" with a different name to identify your release. 
+git clone git@github.com:mollyim/flatline-server.git && cd flatline-server
+helm install $HELM_RELEASE ./helm
+```
+
+When installation succeeds, follow the printed instructions to reach the deployed Flatline components.
+
+#### Customizing the Installation
+
+The Flatline chart provides several options to customize the installation by overriding default values.
+
+Some common customization options are:
+
+- Overriding the bundled configuration files for the Flatline components.
+- Disabling bundled local cloud service emulators to rely on the actual cloud service providers instead.
+- Disabling bundled infrastructure components (e.g. Traefik-specific resources, Redis Cluster, OpenTelemetry Collector, TUS...) to use existing ones.
+- Using an existing StorageClass instead of the default [`k3s` local path provisioner](https://docs.k3s.io/storage).
+
+These and other customizations are documented in the [`values.yaml`](helm/values.yaml) file.
+
+You can read about [how to override values with Helm](https://helm.sh/docs/helm/helm_install/) in the official documentation.
+
+#### Development on Kubernetes
+
+When building images locally for use in Kubernetes, a container image registry is required.
+
+For convenience during local testing, an **insecure** registry can be enabled by the Flatline chart:
+
+```bash
+helm upgrade --set registry.enabled=true $HELM_RELEASE ./helm
+```
+
+When building with Maven, push container images to a registry. For example:
+
+```bash
+# Whisper Service
+./mvnw -e \
+  -f whisper-service/pom.xml \
+  deploy \
+  -Pexclude-spam-filter \
+  -Denv=dev \
+  -DskipTests \
+  -Djib.goal=build \
+  -Djib.to.image=localhost:5000/flatline-whisper-service:dev \
+  -Djib.allowInsecureRegistries=true
+
+# Storage Service
+./mvnw -e \
+  -f storage-service/pom.xml \
+  clean package \
+  -Pdocker-deploy \
+  -Denv=dev \
+  -DskipTests \
+  -Djib.goal=build \
+  -Djib.to.image=localhost:5000/flatline-storage-service:dev \
+  -Djib.allowInsecureRegistries=true
+
+# Registration Service
+./mvnw -e \
+  -f registration-service/pom.xml \
+  clean package \
+  -Denv=dev \
+  -DskipTests \
+  -Djib.goal=build \
+  -Djib.to.image=localhost:5000/flatline-registration-service:dev \
+  -Djib.allowInsecureRegistries=true
+
+# Contact Discovery Service
+./mvnw -e \
+  -f contact-discovery-service/pom.xml \
+  deploy \
+  -Dpackaging=docker \
+  -DskipTests \
+  -Djib.to.image=localhost:5000/flatline-contact-discovery-service:dev \
+  -Djib.allowInsecureRegistries=true
+```
+
+After that, you can override the Helm image values for each component to use these locally built images.
+
+For example, to use locally built images for every component, create `local.yaml` with the following:
+
+```yaml
+registry:
+  enabled: true
+whisperService:
+  image:
+    repository: localhost:5000/flatline-whisper-service
+    tag: dev
+storageService:
+  image:
+    repository: localhost:5000/flatline-storage-service
+    tag: dev
+registrationService:
+  image:
+    repository: localhost:5000/flatline-registration-service
+    tag: dev
+contactDiscoveryService:
+  image:
+    repository: localhost:5000/flatline-contact-discovery-service
+    tag: dev
+```
+
+Finally, upgrade the Helm release to use these custom image values:
+
+```bash
+helm upgrade -f local.yaml $HELM_RELEASE ./helm
+```
+
+### Running with Docker
+
+**WARNING:** This method will be deprecated soon in favor of using a local Kubernetes cluster.
 
 The `dev/compose.yaml` file will use Docker to deploy the container images built from the `main` branch.
 

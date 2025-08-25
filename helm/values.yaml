@@ -460,6 +460,7 @@ traefikResources:
     optionsName: ""
 # registry defines the values for a container registry intended for local development.
 # Enable this component to use locally build Flatline images in Kubernetes without an existing registry.
+# Warning: This registry is insecure, it lacks authentication and encryption in transit.
 registry:
   enabled: false 
   image:
