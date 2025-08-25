@@ -202,7 +202,12 @@ You can deploy a simple container registry with the [Distribution Registry](http
 For example, to deploy an **insecure** registry for local testing:
 
 ```bash
-docker run -d -p 5000:5000 --restart=always --name registry -v /tmp/registry:/var/lib/registry registry:3
+docker run -d \
+  -p 5000:5000 \
+  --restart=always \
+  --name registry \
+  -v /tmp/registry:/var/lib/registry \
+  registry:3
 ```
 
 When building with Maven, push the resulting container images to a registry. For example:
