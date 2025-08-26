@@ -1,7 +1,6 @@
-.idea
-# FLT(uoemai): Commit configuration files to support development.
-# config
-target
+/.idea
+/config
+/target
 *.iml
 .classpath
 .settings

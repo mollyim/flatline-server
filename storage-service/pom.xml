@@ -30,8 +30,6 @@
         <semver4j.version>3.1.0</semver4j.version>
         <snakeyaml.version>2.4</snakeyaml.version>
         <syslog4j.version>0.9.30</syslog4j.version>
-        <!-- FLT(uoemai): Default to storing container image locally. Use "build" to push to a registry. -->
-        <jib.goal>dockerBuild</jib.goal>
 
         <!-- test -->
         <assertj-core.version>3.27.3</assertj-core.version>
@@ -367,8 +365,7 @@
                             <execution>
                                 <phase>package</phase>
                                 <goals>
-                                    <!-- FLT(uoemai): Allow customizing container image storage. -->
-		                    <goal>${jib.goal}</goal>
+                                    <goal>build</goal>
                                 </goals>
                             </execution>
                         </executions>
@@ -400,8 +397,6 @@
                                 <ports>
                                     <port>8080</port>
                                 </ports>
-                                <!-- FLT(uoemai): Timestamp container image. -->
-                                <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
                             </container>
                             <extraDirectories>
                                 <paths>
