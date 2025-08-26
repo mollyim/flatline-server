@@ -11,7 +11,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import io.lettuce.core.cluster.SlotHash;
@@ -20,9 +19,7 @@ import io.lettuce.core.cluster.models.partitions.RedisClusterNode;
 import io.lettuce.core.cluster.pubsub.api.async.RedisClusterPubSubAsyncCommands;
 import io.lettuce.core.cluster.pubsub.api.sync.RedisClusterPubSubCommands;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,17 +35,15 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
-import org.whispersystems.textsecuregcm.storage.Account;
-import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
 import org.whispersystems.textsecuregcm.tests.util.MockRedisFuture;
 import org.whispersystems.textsecuregcm.tests.util.RedisClusterHelper;
 
 @Timeout(value = 10, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-class WebSocketConnectionEventManagerTest {
+class RedisMessageAvailabilityManagerTest {
 
-  private WebSocketConnectionEventManager localEventManager;
-  private WebSocketConnectionEventManager remoteEventManager;
+  private RedisMessageAvailabilityManager localEventManager;
+  private RedisMessageAvailabilityManager remoteEventManager;
 
   private static ExecutorService webSocketConnectionEventExecutor;
   private static ExecutorService asyncOperationQueueingExecutor;
@@ -56,7 +51,7 @@ class WebSocketConnectionEventManagerTest {
   @RegisterExtension
   static final RedisClusterExtension REDIS_CLUSTER_EXTENSION = RedisClusterExtension.builder().build();
 
-  private static class WebSocketConnectionEventAdapter implements WebSocketConnectionEventListener {
+  private static class MessageAvailabilityAdapter implements MessageAvailabilityListener {
 
     @Override
     public void handleNewMessageAvailable() {
@@ -67,7 +62,7 @@ class WebSocketConnectionEventManagerTest {
     }
 
     @Override
-    public void handleConnectionDisplaced(final boolean connectedElsewhere) {
+    public void handleConflictingMessageConsumer() {
     }
   }
 
@@ -79,15 +74,11 @@ class WebSocketConnectionEventManagerTest {
 
   @BeforeEach
   void setUp() {
-    localEventManager = new WebSocketConnectionEventManager(mock(AccountsManager.class),
-        mock(PushNotificationManager.class),
-        REDIS_CLUSTER_EXTENSION.getRedisCluster(),
+    localEventManager = new RedisMessageAvailabilityManager(REDIS_CLUSTER_EXTENSION.getRedisCluster(),
         webSocketConnectionEventExecutor,
         asyncOperationQueueingExecutor);
 
-    remoteEventManager = new WebSocketConnectionEventManager(mock(AccountsManager.class),
-        mock(PushNotificationManager.class),
-        REDIS_CLUSTER_EXTENSION.getRedisCluster(),
+    remoteEventManager = new RedisMessageAvailabilityManager(REDIS_CLUSTER_EXTENSION.getRedisCluster(),
         webSocketConnectionEventExecutor,
         asyncOperationQueueingExecutor);
 
@@ -116,15 +107,12 @@ class WebSocketConnectionEventManagerTest {
     final AtomicBoolean firstListenerDisplaced = new AtomicBoolean(false);
 
     final AtomicBoolean secondListenerDisplaced = new AtomicBoolean(false);
-    final AtomicBoolean firstListenerConnectedElsewhere = new AtomicBoolean(false);
 
-    localEventManager.handleClientConnected(accountIdentifier, deviceId, new WebSocketConnectionEventAdapter() {
+    localEventManager.handleClientConnected(accountIdentifier, deviceId, new MessageAvailabilityAdapter() {
       @Override
-      public void handleConnectionDisplaced(final boolean connectedElsewhere) {
+      public void handleConflictingMessageConsumer() {
         synchronized (firstListenerDisplaced) {
           firstListenerDisplaced.set(true);
-          firstListenerConnectedElsewhere.set(connectedElsewhere);
-
           firstListenerDisplaced.notifyAll();
         }
       }
@@ -133,12 +121,12 @@ class WebSocketConnectionEventManagerTest {
     assertFalse(firstListenerDisplaced.get());
     assertFalse(secondListenerDisplaced.get());
 
-    final WebSocketConnectionEventManager displacingManager =
+    final RedisMessageAvailabilityManager displacingManager =
         displaceRemotely ? remoteEventManager : localEventManager;
 
-    displacingManager.handleClientConnected(accountIdentifier, deviceId, new WebSocketConnectionEventAdapter() {
+    displacingManager.handleClientConnected(accountIdentifier, deviceId, new MessageAvailabilityAdapter() {
       @Override
-      public void handleConnectionDisplaced(final boolean connectedElsewhere) {
+      public void handleConflictingMessageConsumer() {
         secondListenerDisplaced.set(true);
       }
     }).toCompletableFuture().join();
@@ -151,8 +139,6 @@ class WebSocketConnectionEventManagerTest {
 
     assertTrue(firstListenerDisplaced.get());
     assertFalse(secondListenerDisplaced.get());
-
-    assertTrue(firstListenerConnectedElsewhere.get());
   }
 
   @Test
@@ -163,7 +149,7 @@ class WebSocketConnectionEventManagerTest {
     assertFalse(localEventManager.isLocallyPresent(accountIdentifier, deviceId));
     assertFalse(remoteEventManager.isLocallyPresent(accountIdentifier, deviceId));
 
-    localEventManager.handleClientConnected(accountIdentifier, deviceId, new WebSocketConnectionEventAdapter())
+    localEventManager.handleClientConnected(accountIdentifier, deviceId, new MessageAvailabilityAdapter())
         .toCompletableFuture()
         .join();
 
@@ -176,56 +162,6 @@ class WebSocketConnectionEventManagerTest {
 
     assertFalse(localEventManager.isLocallyPresent(accountIdentifier, deviceId));
     assertFalse(remoteEventManager.isLocallyPresent(accountIdentifier, deviceId));
-  }
-
-  @Test
-  void handleDisconnectionRequest() throws InterruptedException {
-    final UUID accountIdentifier = UUID.randomUUID();
-    final byte firstDeviceId = Device.PRIMARY_ID;
-    final byte secondDeviceId = firstDeviceId + 1;
-
-    final AtomicBoolean firstListenerDisplaced = new AtomicBoolean(false);
-    final AtomicBoolean secondListenerDisplaced = new AtomicBoolean(false);
-
-    final AtomicBoolean firstListenerConnectedElsewhere = new AtomicBoolean(false);
-
-    localEventManager.handleClientConnected(accountIdentifier, firstDeviceId, new WebSocketConnectionEventAdapter() {
-      @Override
-      public void handleConnectionDisplaced(final boolean connectedElsewhere) {
-        synchronized (firstListenerDisplaced) {
-          firstListenerDisplaced.set(true);
-          firstListenerConnectedElsewhere.set(connectedElsewhere);
-
-          firstListenerDisplaced.notifyAll();
-        }
-      }
-    }).toCompletableFuture().join();
-
-    localEventManager.handleClientConnected(accountIdentifier, secondDeviceId, new WebSocketConnectionEventAdapter() {
-      @Override
-      public void handleConnectionDisplaced(final boolean connectedElsewhere) {
-        synchronized (secondListenerDisplaced) {
-          secondListenerDisplaced.set(true);
-          secondListenerDisplaced.notifyAll();
-        }
-      }
-    }).toCompletableFuture().join();
-
-    assertFalse(firstListenerDisplaced.get());
-    assertFalse(secondListenerDisplaced.get());
-
-    localEventManager.handleDisconnectionRequest(accountIdentifier, List.of(firstDeviceId));
-
-    synchronized (firstListenerDisplaced) {
-      while (!firstListenerDisplaced.get()) {
-        firstListenerDisplaced.wait();
-      }
-    }
-
-    assertTrue(firstListenerDisplaced.get());
-    assertFalse(secondListenerDisplaced.get());
-
-    assertFalse(firstListenerConnectedElsewhere.get());
   }
 
   @Test
@@ -243,9 +179,7 @@ class WebSocketConnectionEventManagerTest {
         .binaryPubSubAsyncCommands(pubSubAsyncCommands)
         .build();
 
-    final WebSocketConnectionEventManager eventManager = new WebSocketConnectionEventManager(
-        mock(AccountsManager.class),
-        mock(PushNotificationManager.class),
+    final RedisMessageAvailabilityManager eventManager = new RedisMessageAvailabilityManager(
         clusterClient,
         Runnable::run,
         Runnable::run);
@@ -254,7 +188,7 @@ class WebSocketConnectionEventManagerTest {
 
     final UUID firstAccountIdentifier = UUID.randomUUID();
     final byte firstDeviceId = Device.PRIMARY_ID;
-    final int firstSlot = SlotHash.getSlot(WebSocketConnectionEventManager.getClientEventChannel(firstAccountIdentifier, firstDeviceId));
+    final int firstSlot = SlotHash.getSlot(RedisMessageAvailabilityManager.getClientEventChannel(firstAccountIdentifier, firstDeviceId));
 
     final UUID secondAccountIdentifier;
     final byte secondDeviceId = firstDeviceId + 1;
@@ -265,15 +199,15 @@ class WebSocketConnectionEventManagerTest {
 
       do {
         candidateIdentifier = UUID.randomUUID();
-      } while (SlotHash.getSlot(WebSocketConnectionEventManager.getClientEventChannel(candidateIdentifier, secondDeviceId)) == firstSlot);
+      } while (SlotHash.getSlot(RedisMessageAvailabilityManager.getClientEventChannel(candidateIdentifier, secondDeviceId)) == firstSlot);
 
       secondAccountIdentifier = candidateIdentifier;
     }
 
-    eventManager.handleClientConnected(firstAccountIdentifier, firstDeviceId, new WebSocketConnectionEventAdapter()).toCompletableFuture().join();
-    eventManager.handleClientConnected(secondAccountIdentifier, secondDeviceId, new WebSocketConnectionEventAdapter()).toCompletableFuture().join();
+    eventManager.handleClientConnected(firstAccountIdentifier, firstDeviceId, new MessageAvailabilityAdapter()).toCompletableFuture().join();
+    eventManager.handleClientConnected(secondAccountIdentifier, secondDeviceId, new MessageAvailabilityAdapter()).toCompletableFuture().join();
 
-    final int secondSlot = SlotHash.getSlot(WebSocketConnectionEventManager.getClientEventChannel(secondAccountIdentifier, secondDeviceId));
+    final int secondSlot = SlotHash.getSlot(RedisMessageAvailabilityManager.getClientEventChannel(secondAccountIdentifier, secondDeviceId));
 
     final String firstNodeId = UUID.randomUUID().toString();
 
@@ -296,8 +230,8 @@ class WebSocketConnectionEventManagerTest {
         List.of(firstBeforeNode),
         List.of(firstAfterNode, secondAfterNode)));
 
-    verify(pubSubCommands).ssubscribe(WebSocketConnectionEventManager.getClientEventChannel(secondAccountIdentifier, secondDeviceId));
-    verify(pubSubCommands, never()).ssubscribe(WebSocketConnectionEventManager.getClientEventChannel(firstAccountIdentifier, firstDeviceId));
+    verify(pubSubCommands).ssubscribe(RedisMessageAvailabilityManager.getClientEventChannel(secondAccountIdentifier, secondDeviceId));
+    verify(pubSubCommands, never()).ssubscribe(RedisMessageAvailabilityManager.getClientEventChannel(firstAccountIdentifier, firstDeviceId));
   }
 
   @Test
@@ -311,9 +245,7 @@ class WebSocketConnectionEventManagerTest {
         .binaryPubSubAsyncCommands(pubSubAsyncCommands)
         .build();
 
-    final WebSocketConnectionEventManager eventManager = new WebSocketConnectionEventManager(
-        mock(AccountsManager.class),
-        mock(PushNotificationManager.class),
+    final RedisMessageAvailabilityManager eventManager = new RedisMessageAvailabilityManager(
         clusterClient,
         Runnable::run,
         Runnable::run);
@@ -326,76 +258,20 @@ class WebSocketConnectionEventManagerTest {
     final UUID noListenerAccountIdentifier = UUID.randomUUID();
     final byte noListenerDeviceId = listenerDeviceId + 1;
 
-    eventManager.handleClientConnected(listenerAccountIdentifier, listenerDeviceId, new WebSocketConnectionEventAdapter())
+    eventManager.handleClientConnected(listenerAccountIdentifier, listenerDeviceId, new MessageAvailabilityAdapter())
         .toCompletableFuture()
         .join();
 
     eventManager.unsubscribeIfMissingListener(
-        new WebSocketConnectionEventManager.AccountAndDeviceIdentifier(listenerAccountIdentifier, listenerDeviceId));
+        new RedisMessageAvailabilityManager.AccountAndDeviceIdentifier(listenerAccountIdentifier, listenerDeviceId));
 
     eventManager.unsubscribeIfMissingListener(
-        new WebSocketConnectionEventManager.AccountAndDeviceIdentifier(noListenerAccountIdentifier, noListenerDeviceId));
+        new RedisMessageAvailabilityManager.AccountAndDeviceIdentifier(noListenerAccountIdentifier, noListenerDeviceId));
 
     verify(pubSubAsyncCommands, never())
-        .sunsubscribe(WebSocketConnectionEventManager.getClientEventChannel(listenerAccountIdentifier, listenerDeviceId));
+        .sunsubscribe(RedisMessageAvailabilityManager.getClientEventChannel(listenerAccountIdentifier, listenerDeviceId));
 
     verify(pubSubAsyncCommands)
-        .sunsubscribe(WebSocketConnectionEventManager.getClientEventChannel(noListenerAccountIdentifier, noListenerDeviceId));
-  }
-
-  @Test
-  void newMessageNotificationWithoutListener() throws NotPushRegisteredException {
-    final UUID listenerAccountIdentifier = UUID.randomUUID();
-    final byte listenerDeviceId = Device.PRIMARY_ID;
-
-    final UUID noListenerAccountIdentifier = UUID.randomUUID();
-    final byte noListenerDeviceId = listenerDeviceId + 1;
-
-    final Account noListenerAccount = mock(Account.class);
-
-    final AccountsManager accountsManager = mock(AccountsManager.class);
-
-    when(accountsManager.getByAccountIdentifierAsync(noListenerAccountIdentifier))
-        .thenReturn(CompletableFuture.completedFuture(Optional.of(noListenerAccount)));
-
-    final PushNotificationManager pushNotificationManager = mock(PushNotificationManager.class);
-
-    @SuppressWarnings("unchecked") final RedisClusterPubSubAsyncCommands<byte[], byte[]> pubSubAsyncCommands =
-        mock(RedisClusterPubSubAsyncCommands.class);
-
-    when(pubSubAsyncCommands.ssubscribe(any())).thenReturn(MockRedisFuture.completedFuture(null));
-
-    final FaultTolerantRedisClusterClient clusterClient = RedisClusterHelper.builder()
-        .binaryPubSubAsyncCommands(pubSubAsyncCommands)
-        .build();
-
-    final WebSocketConnectionEventManager eventManager = new WebSocketConnectionEventManager(
-        accountsManager,
-        pushNotificationManager,
-        clusterClient,
-        Runnable::run,
-        Runnable::run);
-
-    eventManager.start();
-
-    eventManager.handleClientConnected(listenerAccountIdentifier, listenerDeviceId, new WebSocketConnectionEventAdapter())
-        .toCompletableFuture()
-        .join();
-
-    final byte[] newMessagePayload = ClientEvent.newBuilder()
-        .setNewMessageAvailable(NewMessageAvailableEvent.getDefaultInstance())
-        .build()
-        .toByteArray();
-
-    eventManager.smessage(mock(RedisClusterNode.class),
-        WebSocketConnectionEventManager.getClientEventChannel(listenerAccountIdentifier, listenerDeviceId),
-        newMessagePayload);
-
-    eventManager.smessage(mock(RedisClusterNode.class),
-        WebSocketConnectionEventManager.getClientEventChannel(noListenerAccountIdentifier, noListenerDeviceId),
-        newMessagePayload);
-
-    verify(pushNotificationManager).sendNewMessageNotification(noListenerAccount, noListenerDeviceId, true);
-    verifyNoMoreInteractions(pushNotificationManager);
+        .sunsubscribe(RedisMessageAvailabilityManager.getClientEventChannel(noListenerAccountIdentifier, noListenerDeviceId));
   }
 }

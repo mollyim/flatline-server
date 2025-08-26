@@ -19,7 +19,9 @@ import io.micrometer.core.instrument.binder.system.FileDescriptorMetrics;
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
+import io.micrometer.registry.otlp.OtlpMeterRegistry;
 import io.micrometer.statsd.StatsdMeterRegistry;
+import java.time.Duration;
 import org.whispersystems.textsecuregcm.WhisperServerConfiguration;
 import org.whispersystems.textsecuregcm.WhisperServerVersion;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
@@ -59,7 +61,9 @@ public class MetricsUtil {
 
     SharedMetricRegistries.add(Constants.METRICS_NAME, environment.metrics());
 
-    {
+    Duration shutdownWaitDuration = Duration.ZERO;
+
+    if (config.getDatadogConfiguration().enabled()) {
       final StatsdMeterRegistry dogstatsdMeterRegistry = new StatsdMeterRegistry(
           config.getDatadogConfiguration(), io.micrometer.core.instrument.Clock.SYSTEM);
 
@@ -71,6 +75,20 @@ public class MetricsUtil {
 
       configureMeterFilters(dogstatsdMeterRegistry.config(), dynamicConfigurationManager);
       Metrics.addRegistry(dogstatsdMeterRegistry);
+
+      shutdownWaitDuration = config.getDatadogConfiguration().getShutdownWaitDuration();
+    }
+
+    if (config.getOpenTelemetryConfiguration().enabled()) {
+      final OtlpMeterRegistry otlpMeterRegistry = new OtlpMeterRegistry(
+        config.getOpenTelemetryConfiguration(), io.micrometer.core.instrument.Clock.SYSTEM);
+
+      configureMeterFilters(otlpMeterRegistry.config(), dynamicConfigurationManager);
+      Metrics.addRegistry(otlpMeterRegistry);
+
+      if (config.getOpenTelemetryConfiguration().shutdownWaitDuration().compareTo(shutdownWaitDuration) > 0) {
+        shutdownWaitDuration = config.getOpenTelemetryConfiguration().shutdownWaitDuration();
+      }
     }
 
     environment.lifecycle().addServerLifecycleListener(
@@ -78,14 +96,14 @@ public class MetricsUtil {
 
     environment.lifecycle().addEventListener(new ApplicationShutdownMonitor(Metrics.globalRegistry));
     environment.lifecycle().addEventListener(
-        new MicrometerRegistryManager(Metrics.globalRegistry,
-            config.getDatadogConfiguration().getShutdownWaitDuration()));
+        new MicrometerRegistryManager(Metrics.globalRegistry, shutdownWaitDuration));
   }
 
   @VisibleForTesting
   static void configureMeterFilters(MeterRegistry.Config config,
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager) {
     final DistributionStatisticConfig defaultDistributionStatisticConfig = DistributionStatisticConfig.builder()
+        .percentilesHistogram(true)
         .percentiles(.75, .95, .99, .999)
         .build();
 

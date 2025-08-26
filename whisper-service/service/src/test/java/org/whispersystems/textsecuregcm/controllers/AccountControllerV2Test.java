@@ -62,7 +62,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.PhoneVerificationTokenManager;
@@ -103,7 +102,7 @@ class AccountControllerV2Test {
 
   private static final long SESSION_EXPIRATION_SECONDS = Duration.ofMinutes(10).toSeconds();
 
-  private static final ECKeyPair IDENTITY_KEY_PAIR = Curve.generateKeyPair();
+  private static final ECKeyPair IDENTITY_KEY_PAIR = ECKeyPair.generate();
   private static final IdentityKey IDENTITY_KEY = new IdentityKey(IDENTITY_KEY_PAIR.getPublicKey());
 
   private static final String NEW_NUMBER = PhoneNumberUtil.getInstance().format(
@@ -240,7 +239,7 @@ class AccountControllerV2Test {
           .put(Entity.entity(
               // +4407700900111 is a valid number but not normalized - it has an optional '0' after the country code
               new ChangeNumberRequest(encodeSessionId("session"), null, "+4407700900111", null,
-                  new IdentityKey(Curve.generateKeyPair().getPublicKey()),
+                  new IdentityKey(ECKeyPair.generate().getPublicKey()),
                   Collections.emptyList(),
                   Collections.emptyMap(), null, Collections.emptyMap()),
               MediaType.APPLICATION_JSON_TYPE))) {
@@ -605,168 +604,6 @@ class AccountControllerV2Test {
   }
 
   @Nested
-  class PhoneNumberIdentityKeyDistribution {
-
-    @BeforeEach
-    void setUp() throws Exception {
-      when(accountsManager.getByAccountIdentifier(AuthHelper.VALID_UUID)).thenReturn(Optional.of(AuthHelper.VALID_ACCOUNT));
-
-      when(changeNumberManager.updatePniKeys(any(), any(), any(), any(), any(), any(), any())).thenAnswer(
-          (Answer<Account>) invocation -> {
-            final Account account = invocation.getArgument(0);
-            final IdentityKey pniIdentityKey = invocation.getArgument(1);
-
-            final UUID uuid = account.getUuid();
-            final UUID pni = account.getPhoneNumberIdentifier();
-            final String number = account.getNumber();
-            final List<Device> devices = account.getDevices();
-
-            final Account updatedAccount = mock(Account.class);
-            when(updatedAccount.getUuid()).thenReturn(uuid);
-            when(updatedAccount.getNumber()).thenReturn(number);
-            when(updatedAccount.getIdentityKey(IdentityType.PNI)).thenReturn(pniIdentityKey);
-            when(updatedAccount.getPhoneNumberIdentifier()).thenReturn(pni);
-            when(updatedAccount.getDevices()).thenReturn(devices);
-
-            for (byte i = 1; i <= 3; i++) {
-              final Optional<Device> d = account.getDevice(i);
-              when(updatedAccount.getDevice(i)).thenReturn(d);
-            }
-
-            return updatedAccount;
-          });
-    }
-
-    @Test
-    void pniKeyDistributionSuccess() throws Exception {
-      final AccountIdentityResponse accountIdentityResponse =
-          resources.getJerseyTest()
-          .target("/v2/accounts/phone_number_identity_key_distribution")
-          .request()
-          .header(HttpHeaders.AUTHORIZATION,
-              AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
-          .put(Entity.json(requestJson()), AccountIdentityResponse.class);
-
-      verify(changeNumberManager).updatePniKeys(eq(AuthHelper.VALID_ACCOUNT), eq(IDENTITY_KEY), any(), any(), any(), any(), any());
-
-      assertEquals(AuthHelper.VALID_UUID, accountIdentityResponse.uuid());
-      assertEquals(AuthHelper.VALID_NUMBER, accountIdentityResponse.number());
-      assertEquals(AuthHelper.VALID_PNI, accountIdentityResponse.pni());
-    }
-
-    @Test
-    void unprocessableRequestJson() {
-      final Invocation.Builder request = resources.getJerseyTest()
-          .target("/v2/accounts/phone_number_identity_key_distribution")
-          .request()
-          .header(HttpHeaders.AUTHORIZATION,
-              AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD));
-      try (Response response = request.put(Entity.json(unprocessableJson()))) {
-        assertEquals(400, response.getStatus());
-      }
-    }
-
-    @Test
-    void missingBasicAuthorization() {
-      final Invocation.Builder request = resources.getJerseyTest()
-          .target("/v2/accounts/phone_number_identity_key_distribution")
-          .request();
-      try (Response response = request.put(Entity.json(requestJson()))) {
-        assertEquals(401, response.getStatus());
-      }
-    }
-
-    @Test
-    void invalidBasicAuthorization() {
-      final Invocation.Builder request = resources.getJerseyTest()
-          .target("/v2/accounts/phone_number_identity_key_distribution")
-          .request()
-          .header(HttpHeaders.AUTHORIZATION, "Basic but-invalid");
-      try (Response response = request.put(Entity.json(requestJson()))) {
-        assertEquals(401, response.getStatus());
-      }
-    }
-
-    @Test
-    void invalidRequestBody() {
-      final Invocation.Builder request = resources.getJerseyTest()
-          .target("/v2/accounts/phone_number_identity_key_distribution")
-          .request()
-          .header(HttpHeaders.AUTHORIZATION,
-              AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD));
-      try (Response response = request.put(Entity.json(invalidRequestJson()))) {
-        assertEquals(422, response.getStatus());
-      }
-    }
-
-    @Test
-    void deviceMessageTooLarge() throws Exception {
-      reset(changeNumberManager);
-      when(changeNumberManager.updatePniKeys(any(), any(), any(), any(), any(), any(), any()))
-          .thenThrow(MessageTooLargeException.class);
-
-      try (final Response response = resources.getJerseyTest()
-              .target("/v2/accounts/phone_number_identity_key_distribution")
-              .request()
-              .header(HttpHeaders.AUTHORIZATION,
-                  AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
-              .put(Entity.json(requestJson()))) {
-
-        assertEquals(413, response.getStatus());
-      }
-    }
-
-    /**
-     * Valid request JSON for a {@link org.whispersystems.textsecuregcm.entities.PhoneNumberIdentityKeyDistributionRequest}
-     */
-    private static String requestJson() {
-      final ECSignedPreKey pniSignedPreKey = KeysHelper.signedECPreKey(1, IDENTITY_KEY_PAIR);
-      final KEMSignedPreKey pniLastResortPreKey = KeysHelper.signedKEMPreKey(2, IDENTITY_KEY_PAIR);
-
-      return String.format("""
-          {
-            "pniIdentityKey": "%s",
-            "deviceMessages": [],
-            "devicePniSignedPrekeys": {},
-            "devicePniSignedPrekeys": {"1": {"keyId": %d, "publicKey": "%s", "signature": "%s"}},
-            "devicePniPqLastResortPrekeys": {"1": {"keyId": %d, "publicKey": "%s", "signature": "%s"}},
-            "pniRegistrationIds": {"1": 17}
-          }
-      """, Base64.getEncoder().encodeToString(IDENTITY_KEY.serialize()),
-          pniSignedPreKey.keyId(), Base64.getEncoder().encodeToString(pniSignedPreKey.serializedPublicKey()), Base64.getEncoder().encodeToString(pniSignedPreKey.signature()),
-          pniLastResortPreKey.keyId(), Base64.getEncoder().encodeToString(pniLastResortPreKey.serializedPublicKey()), Base64.getEncoder().encodeToString(pniLastResortPreKey.signature()));
-    }
-
-    /**
-     * Request JSON in the shape of {@link org.whispersystems.textsecuregcm.entities.PhoneNumberIdentityKeyDistributionRequest}, but that
-     * fails validation
-     */
-    private static String invalidRequestJson() {
-      return """
-          {
-            "pniIdentityKey": null,
-            "deviceMessages": [],
-            "devicePniSignedPrekeys": {},
-            "pniRegistrationIds": {}
-          }
-          """;
-    }
-
-    /**
-     * Request JSON that cannot be marshalled into
-     * {@link org.whispersystems.textsecuregcm.entities.PhoneNumberIdentityKeyDistributionRequest}
-     */
-    private static String unprocessableJson() {
-      return """
-          {
-            "pniIdentityKey": []
-          }
-          """;
-    }
-
-  }
-
-  @Nested
   class PhoneNumberDiscoverability {
 
     @BeforeEach
@@ -964,8 +801,8 @@ class AccountControllerV2Test {
         final boolean unrestrictedUnidentifiedAccess, final boolean discoverableByPhoneNumber,
         List<AccountBadge> badges, List<DeviceData> devices) {
 
-      final ECKeyPair aciIdentityKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
       final Account account = new Account();
       account.setUuid(aci);

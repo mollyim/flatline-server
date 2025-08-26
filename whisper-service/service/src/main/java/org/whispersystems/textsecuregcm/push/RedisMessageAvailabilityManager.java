@@ -17,11 +17,9 @@ import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -32,37 +30,31 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.whispersystems.textsecuregcm.auth.DisconnectionRequestListener;
-import org.whispersystems.textsecuregcm.entities.MessageProtos;
 import org.whispersystems.textsecuregcm.metrics.MetricsUtil;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantPubSubClusterConnection;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
-import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.util.RedisClusterUtil;
 import org.whispersystems.textsecuregcm.util.UUIDUtil;
 import org.whispersystems.textsecuregcm.util.Util;
 
 /**
- * The WebSocket connection event manager distributes events related to client presence and message availability to
+ * The Redis message availability manager distributes events related to client presence and message availability to
  * registered listeners. In the current Signal server implementation, clients generally interact with the service by
  * opening a dual-purpose WebSocket. The WebSocket serves as both a delivery mechanism for messages and as a channel
  * for the client to issue API requests to the server. Clients are considered "present" if they have an open WebSocket
- * connection and are therefore likely to receive messages as soon as they're delivered to the server. WebSocket
- * connection managers make a best effort to ensure that clients have at most one active message delivery channel at
- * a time.
+ * connection and are therefore likely to receive messages as soon as they're delivered to the server. Redis message
+ * availability managers ensure that clients have at most one active message delivery channel at a time on a
+ * best-effort basis.
  *
- * @implNote The WebSocket connection event manager uses the Redis 7 sharded pub/sub system to distribute events. This
+ * @implNote The Redis message availability manager uses the Redis 7 sharded pub/sub system to distribute events. This
  * system makes a best effort to ensure that a given client has only a single open connection across the fleet of
  * servers, but cannot guarantee at-most-one behavior.
  *
- * @see WebSocketConnectionEventListener
- * @see org.whispersystems.textsecuregcm.storage.MessagesManager#insert(UUID, byte, MessageProtos.Envelope)
+ * @see MessageAvailabilityListener
+ * @see org.whispersystems.textsecuregcm.storage.MessagesManager#insert(UUID, Map)
  */
-public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<byte[], byte[]> implements Managed,
-    DisconnectionRequestListener {
+public class RedisMessageAvailabilityManager extends RedisClusterPubSubAdapter<byte[], byte[]> implements Managed {
 
-  private final AccountsManager accountsManager;
-  private final PushNotificationManager pushNotificationManager;
   private final FaultTolerantRedisClusterClient clusterClient;
   private final Executor listenerEventExecutor;
 
@@ -73,7 +65,7 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
   @Nullable
   private FaultTolerantPubSubClusterConnection<byte[], byte[]> pubSubConnection;
 
-  private final Map<AccountAndDeviceIdentifier, WebSocketConnectionEventListener> listenersByAccountAndDeviceIdentifier;
+  private final Map<AccountAndDeviceIdentifier, MessageAvailabilityListener> listenersByAccountAndDeviceIdentifier;
 
   private final UUID serverId = UUID.randomUUID();
 
@@ -85,34 +77,29 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
       .toByteArray();
 
   private static final Counter PUBLISH_CLIENT_CONNECTION_EVENT_ERROR_COUNTER =
-      Metrics.counter(MetricsUtil.name(WebSocketConnectionEventManager.class, "publishClientConnectionEventError"));
+      Metrics.counter(MetricsUtil.name(RedisMessageAvailabilityManager.class, "publishClientConnectionEventError"));
 
   private static final Counter UNSUBSCRIBE_ERROR_COUNTER =
-      Metrics.counter(MetricsUtil.name(WebSocketConnectionEventManager.class, "unsubscribeError"));
+      Metrics.counter(MetricsUtil.name(RedisMessageAvailabilityManager.class, "unsubscribeError"));
 
   private static final Counter PUB_SUB_EVENT_WITHOUT_LISTENER_COUNTER =
-      Metrics.counter(MetricsUtil.name(WebSocketConnectionEventManager.class, "pubSubEventWithoutListener"));
+      Metrics.counter(MetricsUtil.name(RedisMessageAvailabilityManager.class, "pubSubEventWithoutListener"));
 
   private static final Counter MESSAGE_AVAILABLE_WITHOUT_LISTENER_COUNTER =
-      Metrics.counter(MetricsUtil.name(WebSocketConnectionEventManager.class, "messageAvailableWithoutListener"));
+      Metrics.counter(MetricsUtil.name(RedisMessageAvailabilityManager.class, "messageAvailableWithoutListener"));
 
   private static final String LISTENER_GAUGE_NAME =
-      MetricsUtil.name(WebSocketConnectionEventManager.class, "listeners");
+      MetricsUtil.name(RedisMessageAvailabilityManager.class, "listeners");
 
-  private static final Logger logger = LoggerFactory.getLogger(WebSocketConnectionEventManager.class);
+  private static final Logger logger = LoggerFactory.getLogger(RedisMessageAvailabilityManager.class);
 
   @VisibleForTesting
   record AccountAndDeviceIdentifier(UUID accountIdentifier, byte deviceId) {
   }
 
-  public WebSocketConnectionEventManager(final AccountsManager accountsManager,
-      final PushNotificationManager pushNotificationManager,
-      final FaultTolerantRedisClusterClient clusterClient,
+  public RedisMessageAvailabilityManager(final FaultTolerantRedisClusterClient clusterClient,
       final Executor listenerEventExecutor,
       final Executor asyncOperationQueueingExecutor) {
-
-    this.accountsManager = accountsManager;
-    this.pushNotificationManager = pushNotificationManager;
 
     this.clusterClient = clusterClient;
     this.listenerEventExecutor = listenerEventExecutor;
@@ -145,7 +132,7 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
   /**
    * Marks the given device as "present" for message delivery and registers a listener for new messages and conflicting
    * connections. If the given device already has a presence registered with this manager, that presence is displaced
-   * immediately and the listener's {@link WebSocketConnectionEventListener#handleConnectionDisplaced(boolean)} method is called.
+   * immediately and the listener's {@link MessageAvailabilityListener#handleConflictingMessageConsumer()} method is called.
    *
    * @param accountIdentifier the account identifier for the newly-connected device
    * @param deviceId the ID of the newly-connected device within the given account
@@ -156,13 +143,13 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
    * pub/sub subscription could not be established, in which case callers should close the client's connection to the
    * server
    */
-  public CompletionStage<Void> handleClientConnected(final UUID accountIdentifier, final byte deviceId, final WebSocketConnectionEventListener listener) {
+  public CompletionStage<Void> handleClientConnected(final UUID accountIdentifier, final byte deviceId, final MessageAvailabilityListener listener) {
     if (pubSubConnection == null) {
       throw new IllegalStateException("WebSocket connection event manager not started");
     }
 
     final byte[] eventChannel = getClientEventChannel(accountIdentifier, deviceId);
-    final AtomicReference<WebSocketConnectionEventListener> displacedListener = new AtomicReference<>();
+    final AtomicReference<MessageAvailabilityListener> displacedListener = new AtomicReference<>();
     final AtomicReference<CompletionStage<Void>> subscribeFuture = new AtomicReference<>();
 
     // Note that we're relying on some specific implementation details of `ConcurrentHashMap#compute(...)`. In
@@ -189,7 +176,7 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
         });
 
     if (displacedListener.get() != null) {
-      listenerEventExecutor.execute(() -> displacedListener.get().handleConnectionDisplaced(true));
+      listenerEventExecutor.execute(() -> displacedListener.get().handleConflictingMessageConsumer());
     }
 
     return subscribeFuture.get()
@@ -260,14 +247,6 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
     return listenersByAccountAndDeviceIdentifier.containsKey(new AccountAndDeviceIdentifier(accountUuid, deviceId));
   }
 
-  @Override
-  public void handleDisconnectionRequest(final UUID accountIdentifier, final Collection<Byte> deviceIds) {
-    deviceIds.stream()
-        .map(deviceId -> listenersByAccountAndDeviceIdentifier.get(new AccountAndDeviceIdentifier(accountIdentifier, deviceId)))
-        .filter(Objects::nonNull)
-        .forEach(listener -> listener.handleConnectionDisplaced(false));
-  }
-
   @VisibleForTesting
   void resubscribe(final ClusterTopologyChangedEvent clusterTopologyChangedEvent) {
     final boolean[] changedSlots = RedisClusterUtil.getChangedSlots(clusterTopologyChangedEvent);
@@ -328,7 +307,7 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
 
     final AccountAndDeviceIdentifier accountAndDeviceIdentifier = parseClientEventChannel(shardChannel);
 
-    @Nullable final WebSocketConnectionEventListener listener =
+    @Nullable final MessageAvailabilityListener listener =
         listenersByAccountAndDeviceIdentifier.get(accountAndDeviceIdentifier);
 
     if (listener != null) {
@@ -339,7 +318,7 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
           // Only act on new connections to other event manager instances; we'll learn about displacements in THIS
           // instance when we update the listener map in `handleClientConnected`
           if (!this.serverId.equals(UUIDUtil.fromByteString(clientEvent.getClientConnected().getServerId()))) {
-            listenerEventExecutor.execute(() -> listener.handleConnectionDisplaced(true));
+            listenerEventExecutor.execute(listener::handleConflictingMessageConsumer);
           }
         }
 
@@ -354,22 +333,6 @@ public class WebSocketConnectionEventManager extends RedisClusterPubSubAdapter<b
 
       if (clientEvent.getEventCase() == ClientEvent.EventCase.NEW_MESSAGE_AVAILABLE) {
         MESSAGE_AVAILABLE_WITHOUT_LISTENER_COUNTER.increment();
-
-        // If we have an active subscription but no registered listener, it's likely that the publisher of this event
-        // believes that the receiving client was present when it really wasn't. Send a push notification as a
-        // just-in-case measure.
-        accountsManager.getByAccountIdentifierAsync(accountAndDeviceIdentifier.accountIdentifier())
-            .thenAccept(maybeAccount -> maybeAccount.ifPresent(account -> {
-              try {
-                pushNotificationManager.sendNewMessageNotification(account, accountAndDeviceIdentifier.deviceId(), true);
-              } catch (final NotPushRegisteredException ignored) {
-              }
-            }))
-            .whenComplete((ignored, throwable) -> {
-              if (throwable != null) {
-                logger.warn("Failed to send follow-up notification to {}:{}", accountAndDeviceIdentifier.accountIdentifier(), accountAndDeviceIdentifier.deviceId());
-              }
-            });
       }
     }
   }

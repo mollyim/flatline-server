@@ -45,6 +45,7 @@ import org.whispersystems.textsecuregcm.configuration.MessageByteLimitCardinalit
 import org.whispersystems.textsecuregcm.configuration.MessageCacheConfiguration;
 import org.whispersystems.textsecuregcm.configuration.NoiseTunnelConfiguration;
 import org.whispersystems.textsecuregcm.configuration.OneTimeDonationConfiguration;
+import org.whispersystems.textsecuregcm.configuration.OpenTelemetryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.PagedSingleUseKEMPreKeyStoreConfiguration;
 import org.whispersystems.textsecuregcm.configuration.PaymentsServiceConfiguration;
 import org.whispersystems.textsecuregcm.configuration.RegistrationServiceClientFactory;
@@ -52,7 +53,7 @@ import org.whispersystems.textsecuregcm.configuration.RemoteConfigConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ReportMessageConfiguration;
 import org.whispersystems.textsecuregcm.configuration.S3ObjectMonitorFactory;
 import org.whispersystems.textsecuregcm.configuration.SecureStorageServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SecureValueRecovery2Configuration;
+import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ShortCodeExpanderConfiguration;
 import org.whispersystems.textsecuregcm.configuration.SpamFilterConfiguration;
 import org.whispersystems.textsecuregcm.configuration.StripeConfiguration;
@@ -141,6 +142,11 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @Valid
   @JsonProperty
+  private OpenTelemetryConfiguration openTelemetry;
+
+  @NotNull
+  @Valid
+  @JsonProperty
   private FaultTolerantRedisClusterFactory cacheCluster;
 
   @NotNull
@@ -156,7 +162,12 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @Valid
   @JsonProperty
-  private SecureValueRecovery2Configuration svr2;
+  private SecureValueRecoveryConfiguration svr2;
+
+  @NotNull
+  @Valid
+  @JsonProperty
+  private SecureValueRecoveryConfiguration svrb;
 
   @NotNull
   @Valid
@@ -305,7 +316,7 @@ public class WhisperServerConfiguration extends Configuration {
   @Valid
   @NotNull
   @JsonProperty
-  private VirtualThreadConfiguration virtualThread = new VirtualThreadConfiguration(Duration.ofMillis(1));
+  private VirtualThreadConfiguration virtualThread = new VirtualThreadConfiguration();
 
   @Valid
   @NotNull
@@ -389,8 +400,12 @@ public class WhisperServerConfiguration extends Configuration {
     return pubsub;
   }
 
-  public SecureValueRecovery2Configuration getSvr2Configuration() {
+  public SecureValueRecoveryConfiguration getSvr2Configuration() {
     return svr2;
+  }
+
+  public SecureValueRecoveryConfiguration getSvrbConfiguration() {
+    return svrb;
   }
 
   public DirectoryV2Configuration getDirectoryV2Configuration() {
@@ -431,6 +446,10 @@ public class WhisperServerConfiguration extends Configuration {
 
   public DatadogConfiguration getDatadogConfiguration() {
     return dogstatsd;
+  }
+
+  public OpenTelemetryConfiguration getOpenTelemetryConfiguration() {
+    return openTelemetry;
   }
 
   public UnidentifiedDeliveryConfiguration getDeliveryCertificate() {

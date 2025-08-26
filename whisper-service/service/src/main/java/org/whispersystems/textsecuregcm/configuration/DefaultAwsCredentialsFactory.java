@@ -7,14 +7,12 @@ package org.whispersystems.textsecuregcm.configuration;
 
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 
 @JsonTypeName("default")
 public record DefaultAwsCredentialsFactory() implements AwsCredentialsProviderFactory {
 
-  // FLT(uoemai): Allow for more flexibility in providing AWS credentials.
   public AwsCredentialsProvider build() {
-    return DefaultCredentialsProvider.create();
+    return WebIdentityTokenFileCredentialsProvider.create();
   }
 }
