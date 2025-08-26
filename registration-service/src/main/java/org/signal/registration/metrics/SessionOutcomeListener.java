@@ -29,7 +29,10 @@ public class SessionOutcomeListener implements ApplicationEventListener<SessionC
 
   private final MeterRegistry meterRegistry;
 
-  private static final String COUNTER_NAME =
+  private static final String ATTEMPTS_COUNTER_NAME =
+      MetricsUtil.name(SessionOutcomeListener.class, "completedAttempts");
+
+  private static final String SESSIONS_COUNTER_NAME =
       MetricsUtil.name(SessionOutcomeListener.class, "completedSessions");
 
   private static final String SEND_ERROR_COUNTER_NAME =
@@ -61,6 +64,8 @@ public class SessionOutcomeListener implements ApplicationEventListener<SessionC
             .increment();
       }
 
+      boolean sessionVerified = false;
+
       // NOTE: we do not count sessions that have no attempts or only failed attempts; these could happen because the
       // attempts were blocked due to suspected fraud (among other reasons). Regardless of the cause, we only want to
       // measure sessions that actually triggered an attempt to deliver a verification code with this counter.
@@ -68,16 +73,30 @@ public class SessionOutcomeListener implements ApplicationEventListener<SessionC
         // Assume that all verification attempts before the last one were not successfully verified
         final boolean attemptVerified = StringUtils.isNotBlank(session.getVerifiedCode()) &&
             i == session.getRegistrationAttemptsCount() - 1;
+        sessionVerified = attemptVerified;
 
-        meterRegistry.counter(COUNTER_NAME,
+        meterRegistry.counter(ATTEMPTS_COUNTER_NAME,
                 MetricsUtil.SENDER_TAG_NAME, session.getRegistrationAttempts(i).getSenderName(),
                 MetricsUtil.TRANSPORT_TAG_NAME, MetricsUtil.getMessageTransportTagValue(session.getRegistrationAttempts(i).getMessageTransport()),
                 MetricsUtil.VERIFIED_TAG_NAME, String.valueOf(attemptVerified),
                 MetricsUtil.COUNTRY_CODE_TAG_NAME, String.valueOf(phoneNumber.getCountryCode()),
                 MetricsUtil.REGION_CODE_TAG_NAME, Optional.ofNullable(PhoneNumberUtil.getInstance().getRegionCodeForNumber(phoneNumber))
+                    .orElse("XX"),
+                MetricsUtil.FIRST_ATTEMPT_TAG_NAME, String.valueOf(i == 0))
+            .increment();
+      }
+
+      // We consider a session completed only if it had a valid attempt
+      if (session.getRegistrationAttemptsCount() > 0) {
+        meterRegistry.counter(SESSIONS_COUNTER_NAME,
+                MetricsUtil.VERIFIED_TAG_NAME, String.valueOf(sessionVerified),
+                MetricsUtil.COUNTRY_CODE_TAG_NAME, String.valueOf(phoneNumber.getCountryCode()),
+                MetricsUtil.REGION_CODE_TAG_NAME,
+                Optional.ofNullable(PhoneNumberUtil.getInstance().getRegionCodeForNumber(phoneNumber))
                     .orElse("XX"))
             .increment();
       }
+
     } catch (final NumberParseException e) {
       logger.warn("Failed to parse phone number from completed session", e);
     }

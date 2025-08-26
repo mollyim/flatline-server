@@ -47,7 +47,7 @@ class AttemptPriceMetricsListener implements ApplicationEventListener<AttemptAna
 
   @Override
   public void onApplicationEvent(final AttemptAnalyzedEvent event) {
-    event.attemptAnalysis().price().ifPresent(price -> {
+    event.attemptAnalysis().price().or(() -> event.attemptAnalysis().estimatedPrice()).ifPresent(price -> {
       if (USD.equals(price.currency())) {
         final Tags tags = Tags.of(MetricsUtil.SENDER_TAG_NAME, event.attemptPendingAnalysis().getSenderName(),
             MetricsUtil.CLIENT_TYPE_TAG_NAME, MetricsUtil.getClientTypeTagValue(event.attemptPendingAnalysis().getClientType()),

@@ -24,15 +24,20 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junitpioneer.jupiter.cartesian.ArgumentSets;
+import org.junitpioneer.jupiter.cartesian.CartesianTest;
 
 class VerificationSmsBodyProviderTest {
 
   private VerificationSmsConfiguration configuration;
+
+  private static final String ANDROID_APP_HASH = RandomStringUtils.insecure().nextAlphanumeric(11);
 
   private static final Phonenumber.PhoneNumber US_NUMBER = PhoneNumberUtil.getInstance().getExampleNumber("US");
   private static final Phonenumber.PhoneNumber CN_NUMBER = PhoneNumberUtil.getInstance().getExampleNumber("CN");
@@ -40,7 +45,7 @@ class VerificationSmsBodyProviderTest {
   @BeforeEach
   void setUp() {
     configuration = new VerificationSmsConfiguration();
-    configuration.setAndroidAppHash("app-hash");
+    configuration.setAndroidAppHash(ANDROID_APP_HASH);
     configuration.setSupportedLanguages(List.of("en"));
   }
 
@@ -54,6 +59,10 @@ class VerificationSmsBodyProviderTest {
         assertDoesNotThrow(() -> bodyProvider.getVerificationBody(phoneNumber, clientType, verificationCode, languageRanges));
 
     assertTrue(messageBody.contains(verificationCode));
+
+    if (clientType == ClientType.ANDROID_WITH_FCM) {
+      assertTrue(messageBody.contains(ANDROID_APP_HASH));
+    }
   }
 
   private static Stream<Arguments> getMessageBody() {
@@ -132,5 +141,35 @@ class VerificationSmsBodyProviderTest {
     assertTrue(bodyProvider.supportsLanguage(Locale.LanguageRange.parse("fr")));
     assertTrue(bodyProvider.supportsLanguage(Locale.LanguageRange.parse("fr-CA")));
     assertTrue(bodyProvider.supportsLanguage(Locale.LanguageRange.parse("fr-FR")));
+  }
+
+  @CartesianTest
+  @CartesianTest.MethodFactory("rawMessageQuoteCheck")
+  void rawMessageQuoteCheck(final Locale locale, final String code) {
+    final VerificationSmsBodyProvider bodyProvider = new VerificationSmsBodyProvider(configuration,
+        new SimpleMeterRegistry());
+
+    final MessageSource.MessageContext messageContext = MessageSource.MessageContext.of(locale,
+        Collections.emptyMap());
+
+    final String rawMessage = bodyProvider.getMessageSource()
+        .getRequiredRawMessage(code, messageContext);
+
+    // until we have a use case, a single quote is probably a mistake and could break variable interpolation
+    assertTrue(!rawMessage.contains("'") || rawMessage.contains("''"));
+  }
+
+  static ArgumentSets rawMessageQuoteCheck() {
+
+    return ArgumentSets
+        // locale
+        .argumentsForFirstParameter(Locale.availableLocales())
+
+        // code
+        .argumentsForNextParameter(List.of(
+            VerificationSmsBodyProvider.IOS_MESSAGE_KEY,
+            VerificationSmsBodyProvider.ANDROID_MESSAGE_KEY,
+            VerificationSmsBodyProvider.GENERIC_MESSAGE_KEY
+        ));
   }
 }

@@ -67,6 +67,7 @@ class GcpAttemptCompletedEventListener implements ApplicationEventListener<Sessi
     final String region = StringUtils.defaultIfBlank(PhoneNumberUtil.getInstance().getRegionCodeForNumber(phoneNumber),
         "XX");
 
+    int attemptId = 0;
     for (int i = 0; i < session.getFailedAttemptsCount(); i++) {
       final FailedSendAttempt failedAttempt = session.getFailedAttempts(i);
       if (failedAttempt.getFailedSendReason() != FailedSendReason.FAILED_SEND_REASON_UNAVAILABLE) {
@@ -77,7 +78,7 @@ class GcpAttemptCompletedEventListener implements ApplicationEventListener<Sessi
 
       final CompletedAttemptPubSubMessage completedAttempt = CompletedAttemptPubSubMessage.newBuilder()
           .setSessionId(UUIDUtil.uuidFromByteString(session.getId()).toString())
-          .setAttemptId(i)
+          .setAttemptId(attemptId++)
           .setSenderName(failedAttempt.getSenderName())
           .setMessageTransport(MetricsUtil.getMessageTransportTagValue(failedAttempt.getMessageTransport()))
           .setClientType(MetricsUtil.getClientTypeTagValue(failedAttempt.getClientType()))
@@ -104,7 +105,7 @@ class GcpAttemptCompletedEventListener implements ApplicationEventListener<Sessi
 
       final CompletedAttemptPubSubMessage completedAttempt = CompletedAttemptPubSubMessage.newBuilder()
           .setSessionId(UUIDUtil.uuidFromByteString(session.getId()).toString())
-          .setAttemptId(i)
+          .setAttemptId(attemptId++)
           .setSenderName(registrationAttempt.getSenderName())
           .setMessageTransport(MetricsUtil.getMessageTransportTagValue(registrationAttempt.getMessageTransport()))
           .setClientType(MetricsUtil.getClientTypeTagValue(registrationAttempt.getClientType()))
