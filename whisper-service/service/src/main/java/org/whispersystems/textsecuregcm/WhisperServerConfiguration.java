@@ -9,6 +9,7 @@ import io.dropwizard.core.Configuration;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -22,6 +23,7 @@ import org.whispersystems.textsecuregcm.configuration.BadgesConfiguration;
 import org.whispersystems.textsecuregcm.configuration.BraintreeConfiguration;
 import org.whispersystems.textsecuregcm.configuration.Cdn3StorageManagerConfiguration;
 import org.whispersystems.textsecuregcm.configuration.CdnConfiguration;
+import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ClientReleaseConfiguration;
 import org.whispersystems.textsecuregcm.configuration.DatadogConfiguration;
 import org.whispersystems.textsecuregcm.configuration.DefaultAwsCredentialsFactory;
@@ -45,14 +47,16 @@ import org.whispersystems.textsecuregcm.configuration.MessageByteLimitCardinalit
 import org.whispersystems.textsecuregcm.configuration.MessageCacheConfiguration;
 import org.whispersystems.textsecuregcm.configuration.NoiseTunnelConfiguration;
 import org.whispersystems.textsecuregcm.configuration.OneTimeDonationConfiguration;
+import org.whispersystems.textsecuregcm.configuration.OpenTelemetryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.PagedSingleUseKEMPreKeyStoreConfiguration;
 import org.whispersystems.textsecuregcm.configuration.PaymentsServiceConfiguration;
 import org.whispersystems.textsecuregcm.configuration.RegistrationServiceClientFactory;
 import org.whispersystems.textsecuregcm.configuration.RemoteConfigConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ReportMessageConfiguration;
+import org.whispersystems.textsecuregcm.configuration.RetryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.S3ObjectMonitorFactory;
 import org.whispersystems.textsecuregcm.configuration.SecureStorageServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SecureValueRecovery2Configuration;
+import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ShortCodeExpanderConfiguration;
 import org.whispersystems.textsecuregcm.configuration.SpamFilterConfiguration;
 import org.whispersystems.textsecuregcm.configuration.StripeConfiguration;
@@ -62,7 +66,6 @@ import org.whispersystems.textsecuregcm.configuration.TurnConfiguration;
 import org.whispersystems.textsecuregcm.configuration.UnidentifiedDeliveryConfiguration;
 import org.whispersystems.textsecuregcm.configuration.VirtualThreadConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ZkConfig;
-import org.whispersystems.textsecuregcm.limits.RateLimiterConfig;
 import org.whispersystems.websocket.configuration.WebSocketConfiguration;
 
 /** @noinspection MismatchedQueryAndUpdateOfCollection, WeakerAccess */
@@ -141,6 +144,11 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @Valid
   @JsonProperty
+  private OpenTelemetryConfiguration openTelemetry;
+
+  @NotNull
+  @Valid
+  @JsonProperty
   private FaultTolerantRedisClusterFactory cacheCluster;
 
   @NotNull
@@ -156,7 +164,12 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @Valid
   @JsonProperty
-  private SecureValueRecovery2Configuration svr2;
+  private SecureValueRecoveryConfiguration svr2;
+
+  @NotNull
+  @Valid
+  @JsonProperty
+  private SecureValueRecoveryConfiguration svrb;
 
   @NotNull
   @Valid
@@ -177,11 +190,6 @@ public class WhisperServerConfiguration extends Configuration {
   @NotNull
   @JsonProperty
   private List<MaxDeviceConfiguration> maxDevices = new LinkedList<>();
-
-  @Valid
-  @NotNull
-  @JsonProperty
-  private Map<String, RateLimiterConfig> limits = new HashMap<>();
 
   @Valid
   @NotNull
@@ -305,7 +313,7 @@ public class WhisperServerConfiguration extends Configuration {
   @Valid
   @NotNull
   @JsonProperty
-  private VirtualThreadConfiguration virtualThread = new VirtualThreadConfiguration(Duration.ofMillis(1));
+  private VirtualThreadConfiguration virtualThread = new VirtualThreadConfiguration();
 
   @Valid
   @NotNull
@@ -328,6 +336,17 @@ public class WhisperServerConfiguration extends Configuration {
   @JsonProperty
   private IdlePrimaryDeviceReminderConfiguration idlePrimaryDeviceReminder =
       new IdlePrimaryDeviceReminderConfiguration(Duration.ofDays(30));
+
+  @JsonProperty
+  private Map<String, @Valid CircuitBreakerConfiguration> circuitBreakers = Collections.emptyMap();
+
+  @JsonProperty
+  private Map<String, @Valid RetryConfiguration> retries = Collections.emptyMap();
+
+  @JsonProperty
+  @Valid
+  @NotNull
+  private RetryConfiguration generalRedisRetry = new RetryConfiguration();
 
   public TlsKeyStoreConfiguration getTlsKeyStoreConfiguration() {
     return tlsKeyStore;
@@ -389,8 +408,12 @@ public class WhisperServerConfiguration extends Configuration {
     return pubsub;
   }
 
-  public SecureValueRecovery2Configuration getSvr2Configuration() {
+  public SecureValueRecoveryConfiguration getSvr2Configuration() {
     return svr2;
+  }
+
+  public SecureValueRecoveryConfiguration getSvrbConfiguration() {
+    return svrb;
   }
 
   public DirectoryV2Configuration getDirectoryV2Configuration() {
@@ -431,6 +454,10 @@ public class WhisperServerConfiguration extends Configuration {
 
   public DatadogConfiguration getDatadogConfiguration() {
     return dogstatsd;
+  }
+
+  public OpenTelemetryConfiguration getOpenTelemetryConfiguration() {
+    return openTelemetry;
   }
 
   public UnidentifiedDeliveryConfiguration getDeliveryCertificate() {
@@ -542,5 +569,17 @@ public class WhisperServerConfiguration extends Configuration {
 
   public IdlePrimaryDeviceReminderConfiguration idlePrimaryDeviceReminderConfiguration() {
     return idlePrimaryDeviceReminder;
+  }
+
+  public Map<String, CircuitBreakerConfiguration> getCircuitBreakerConfigurations() {
+    return circuitBreakers;
+  }
+
+  public Map<String, RetryConfiguration> getRetryConfigurations() {
+    return retries;
+  }
+
+  public RetryConfiguration getGeneralRedisRetryConfiguration() {
+    return generalRedisRetry;
   }
 }

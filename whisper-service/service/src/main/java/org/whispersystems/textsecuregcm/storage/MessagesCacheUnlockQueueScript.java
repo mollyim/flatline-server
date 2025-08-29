@@ -8,9 +8,10 @@ package org.whispersystems.textsecuregcm.storage;
 import io.lettuce.core.ScriptOutputType;
 import org.whispersystems.textsecuregcm.push.ClientEvent;
 import org.whispersystems.textsecuregcm.push.MessagesPersistedEvent;
-import org.whispersystems.textsecuregcm.push.WebSocketConnectionEventManager;
+import org.whispersystems.textsecuregcm.push.RedisMessageAvailabilityManager;
 import org.whispersystems.textsecuregcm.redis.ClusterLuaScript;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
@@ -35,9 +36,10 @@ class MessagesCacheUnlockQueueScript {
   void execute(final UUID accountIdentifier, final byte deviceId) {
     final List<byte[]> keys = List.of(
         MessagesCache.getPersistInProgressKey(accountIdentifier, deviceId), // persistInProgressKey
-        WebSocketConnectionEventManager.getClientEventChannel(accountIdentifier, deviceId) // eventChannelKey
+        RedisMessageAvailabilityManager.getClientEventChannel(accountIdentifier, deviceId) // eventChannelKey
     );
 
-    unlockQueueScript.executeBinary(keys, MESSAGES_PERSISTED_EVENT_ARGS);
+    ResilienceUtil.getGeneralRedisRetry(MessagesCache.RETRY_NAME)
+        .executeRunnable(() -> unlockQueueScript.executeBinary(keys, MESSAGES_PERSISTED_EVENT_ARGS));
   }
 }

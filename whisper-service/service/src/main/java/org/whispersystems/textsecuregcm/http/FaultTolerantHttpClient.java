@@ -16,6 +16,8 @@ import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -24,55 +26,39 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
-import io.micrometer.core.instrument.Tags;
+import javax.annotation.Nullable;
 import org.glassfish.jersey.SslConfigurator;
-import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
-import org.whispersystems.textsecuregcm.configuration.RetryConfiguration;
 import org.whispersystems.textsecuregcm.util.CertificateUtil;
-import org.whispersystems.textsecuregcm.util.CircuitBreakerUtil;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 
 public class FaultTolerantHttpClient {
 
   private final List<HttpClient> httpClients;
   private final Duration defaultRequestTimeout;
-  private final ScheduledExecutorService retryExecutor;
-  private final Retry retry;
+  @Nullable private final ScheduledExecutorService retryExecutor;
+  @Nullable private final Retry retry;
   private final CircuitBreaker breaker;
 
   public static final String SECURITY_PROTOCOL_TLS_1_2 = "TLSv1.2";
   public static final String SECURITY_PROTOCOL_TLS_1_3 = "TLSv1.3";
 
-  public static Builder newBuilder() {
-    return new Builder();
+  public static Builder newBuilder(final String name, final Executor executor) {
+    return new Builder(name, executor);
   }
 
   @VisibleForTesting
-  FaultTolerantHttpClient(String name, List<HttpClient> httpClients, ScheduledExecutorService retryExecutor,
-      Duration defaultRequestTimeout, RetryConfiguration retryConfiguration,
-      final Predicate<Throwable> retryOnException, CircuitBreakerConfiguration circuitBreakerConfiguration) {
+  FaultTolerantHttpClient(final List<HttpClient> httpClients,
+      final Duration defaultRequestTimeout,
+      @Nullable final ScheduledExecutorService retryExecutor,
+      @Nullable final Retry retry,
+      final CircuitBreaker circuitBreaker) {
 
     this.httpClients = httpClients;
-    this.retryExecutor = retryExecutor;
     this.defaultRequestTimeout = defaultRequestTimeout;
-    this.breaker = CircuitBreaker.of(name + "-breaker", circuitBreakerConfiguration.toCircuitBreakerConfig());
-
-    CircuitBreakerUtil.registerMetrics(breaker, FaultTolerantHttpClient.class, Tags.empty());
-
-    if (retryConfiguration != null) {
-      if (this.retryExecutor == null) {
-        throw new IllegalArgumentException("retryExecutor must be specified with retryConfiguration");
-      }
-      final RetryConfig.Builder<HttpResponse> retryConfig = retryConfiguration.<HttpResponse>toRetryConfigBuilder()
-          .retryOnResult(o -> o.statusCode() >= 500);
-      if (retryOnException != null) {
-        retryConfig.retryOnException(retryOnException);
-      }
-      this.retry = Retry.of(name + "-retry", retryConfig.build());
-      CircuitBreakerUtil.registerMetrics(retry, FaultTolerantHttpClient.class);
-    } else {
-      this.retry = null;
-    }
+    this.retryExecutor = retryExecutor;
+    this.retry = retry;
+    this.breaker = circuitBreaker;
   }
 
   private HttpClient httpClient() {
@@ -80,28 +66,30 @@ public class FaultTolerantHttpClient {
   }
 
   public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
-      HttpResponse.BodyHandler<T> bodyHandler) {
+      final HttpResponse.BodyHandler<T> bodyHandler) {
+
     if (request.timeout().isEmpty()) {
-      request = HttpRequest.newBuilder(request, (n, v) -> true)
+      request = HttpRequest.newBuilder(request, (_, _) -> true)
           .timeout(defaultRequestTimeout)
           .build();
     }
 
-    Supplier<CompletionStage<HttpResponse<T>>> asyncRequest = sendAsync(httpClient(), request, bodyHandler);
+    final Supplier<CompletionStage<HttpResponse<T>>> asyncRequestSupplier =
+        sendAsync(httpClient(), request, bodyHandler);
 
     if (retry != null) {
-      return breaker.executeCompletionStage(retryableCompletionStage(asyncRequest)).toCompletableFuture();
-    } else {
-      return breaker.executeCompletionStage(asyncRequest).toCompletableFuture();
-    }
-  }
+      assert retryExecutor != null;
 
-  private <T> Supplier<CompletionStage<T>> retryableCompletionStage(Supplier<CompletionStage<T>> supplier) {
-    return () -> retry.executeCompletionStage(retryExecutor, supplier);
+      return breaker.executeCompletionStage(retry.decorateCompletionStage(retryExecutor, asyncRequestSupplier))
+          .toCompletableFuture();
+    } else {
+      return breaker.executeCompletionStage(asyncRequestSupplier).toCompletableFuture();
+    }
   }
 
   private <T> Supplier<CompletionStage<HttpResponse<T>>> sendAsync(HttpClient client, HttpRequest request,
       HttpResponse.BodyHandler<T> bodyHandler) {
+
     return () -> client.sendAsync(request, bodyHandler);
   }
 
@@ -113,21 +101,18 @@ public class FaultTolerantHttpClient {
     private Duration requestTimeout = Duration.ofSeconds(60);
     private int numClients = 1;
 
-    private String name;
+    private final String name;
     private Executor executor;
-    private ScheduledExecutorService retryExecutor;
     private KeyStore trustStore;
     private String securityProtocol = SECURITY_PROTOCOL_TLS_1_2;
-    private RetryConfiguration retryConfiguration;
+    private String retryConfigurationName;
+    private ScheduledExecutorService retryExecutor;
     private Predicate<Throwable> retryOnException;
-    private CircuitBreakerConfiguration circuitBreakerConfiguration;
+    @Nullable private String circuitBreakerConfigurationName;
 
-    private Builder() {
-    }
-
-    public Builder withName(String name) {
-      this.name = name;
-      return this;
+    private Builder(final String name, final Executor executor) {
+      this.name = getClass().getSimpleName() + "/" + Objects.requireNonNull(name);
+      this.executor = Objects.requireNonNull(executor);
     }
 
     public Builder withVersion(HttpClient.Version version) {
@@ -137,11 +122,6 @@ public class FaultTolerantHttpClient {
 
     public Builder withRedirect(HttpClient.Redirect redirect) {
       this.redirect = redirect;
-      return this;
-    }
-
-    public Builder withExecutor(Executor executor) {
-      this.executor = executor;
       return this;
     }
 
@@ -155,18 +135,15 @@ public class FaultTolerantHttpClient {
       return this;
     }
 
-    public Builder withRetry(RetryConfiguration retryConfiguration) {
-      this.retryConfiguration = retryConfiguration;
-      return this;
-    }
-
-    public Builder withRetryExecutor(ScheduledExecutorService retryExecutor) {
+    public Builder withRetry(@Nullable final String retryConfigurationName, final ScheduledExecutorService retryExecutor) {
+      this.retryConfigurationName = retryConfigurationName;
       this.retryExecutor = retryExecutor;
+
       return this;
     }
 
-    public Builder withCircuitBreaker(CircuitBreakerConfiguration circuitBreakerConfiguration) {
-      this.circuitBreakerConfiguration = circuitBreakerConfiguration;
+    public Builder withCircuitBreaker(@Nullable final String circuitBreakerConfigurationName) {
+      this.circuitBreakerConfigurationName = circuitBreakerConfigurationName;
       return this;
     }
 
@@ -206,10 +183,6 @@ public class FaultTolerantHttpClient {
     }
 
     public FaultTolerantHttpClient build() {
-      if (this.circuitBreakerConfiguration == null || this.name == null || this.executor == null) {
-        throw new IllegalArgumentException("Must specify circuit breaker config, name, and executor");
-      }
-
       if (numClients > 1 && version != HttpClient.Version.HTTP_2) {
         throw new IllegalArgumentException("Should not use additional HTTP clients unless using HTTP/2");
       }
@@ -232,8 +205,33 @@ public class FaultTolerantHttpClient {
             return builder.build();
           }).toList();
 
-      return new FaultTolerantHttpClient(name, httpClients, retryExecutor, requestTimeout, retryConfiguration,
-          retryOnException, circuitBreakerConfiguration);
+      @Nullable final Retry retry;
+
+      if (retryExecutor != null) {
+        final RetryConfig.Builder<HttpResponse<?>> retryConfigBuilder =
+            RetryConfig.from(Optional.ofNullable(retryConfigurationName)
+                .flatMap(name -> ResilienceUtil.getRetryRegistry().getConfiguration(name))
+                .orElseGet(() -> ResilienceUtil.getRetryRegistry().getDefaultConfig()));
+
+        retryConfigBuilder.retryOnResult(response -> response.statusCode() >= 500);
+
+        if (retryOnException != null) {
+          retryConfigBuilder.retryOnException(retryOnException);
+        }
+
+        retry = ResilienceUtil.getRetryRegistry()
+            .retry(ResilienceUtil.name(FaultTolerantHttpClient.class, name), retryConfigBuilder.build());
+      } else {
+        retry = null;
+      }
+
+      final String circuitBreakerName = ResilienceUtil.name(FaultTolerantHttpClient.class, name);
+
+      final CircuitBreaker circuitBreaker = circuitBreakerConfigurationName != null
+          ? ResilienceUtil.getCircuitBreakerRegistry().circuitBreaker(circuitBreakerName, circuitBreakerConfigurationName)
+          : ResilienceUtil.getCircuitBreakerRegistry().circuitBreaker(circuitBreakerName);
+
+      return new FaultTolerantHttpClient(httpClients, requestTimeout, retryExecutor, retry, circuitBreaker);
     }
   }
 

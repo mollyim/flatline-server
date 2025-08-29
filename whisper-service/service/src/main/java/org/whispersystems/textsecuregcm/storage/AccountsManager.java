@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.dropwizard.lifecycle.Managed;
+import io.lettuce.core.RedisCommandTimeoutException;
 import io.lettuce.core.RedisException;
 import io.lettuce.core.SetArgs;
 import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands;
@@ -45,15 +46,14 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -84,12 +84,11 @@ import org.whispersystems.textsecuregcm.redis.FaultTolerantPubSubConnection;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securestorage.StorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryException;
-import org.whispersystems.textsecuregcm.securevaluerecovery.ValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 import org.whispersystems.textsecuregcm.util.Pair;
+import org.whispersystems.textsecuregcm.util.RegistrationIdValidator;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.SystemMapper;
 import org.whispersystems.textsecuregcm.util.Util;
 import reactor.core.publisher.Flux;
@@ -116,6 +115,12 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private static final String DELETE_COUNTER_NAME       = name(AccountsManager.class, "deleteCounter");
   private static final String COUNTRY_CODE_TAG_NAME     = "country";
   private static final String DELETION_REASON_TAG_NAME  = "reason";
+  private static final String TIMESTAMP_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME = name(AccountsManager.class, "timestampRedisKeyCounter");
+  private static final String REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME = name(AccountsManager.class,"registrationIdRedisKeyCounter");
+
+  private static final String RETRY_NAME = ResilienceUtil.name(AccountsManager.class);
+
+  private static final Duration SUBSCRIBE_RETRY_DELAY = Duration.ofSeconds(5);
 
   private static final Logger logger = LoggerFactory.getLogger(AccountsManager.class);
 
@@ -127,14 +132,14 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private final KeysManager keysManager;
   private final MessagesManager messagesManager;
   private final ProfilesManager profilesManager;
-  private final StorageClient storageClient;
-  private final ValueRecovery2Client valueRecovery2Client;
-
+  private final SecureStorageClient secureStorageClient;
+  private final SecureValueRecoveryClient secureValueRecovery2Client;
   private final DisconnectionRequestManager disconnectionRequestManager;
   private final RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager;
   private final ClientPublicKeysManager clientPublicKeysManager;
   private final Executor accountLockExecutor;
   private final ScheduledExecutorService messagesPollExecutor;
+  private final ScheduledExecutorService retryExecutor;
   private final Clock clock;
   private final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager;
 
@@ -145,7 +150,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private final Map<String, CompletableFuture<Optional<DeviceInfo>>> waitForDeviceFuturesByTokenIdentifier =
       new ConcurrentHashMap<>();
 
-  private final Map<TimestampedDeviceIdentifier, CompletableFuture<Optional<TransferArchiveResult>>> waitForTransferArchiveFuturesByDeviceIdentifier =
+  private final Map<DeviceIdentifier, CompletableFuture<Optional<TransferArchiveResult>>> waitForTransferArchiveFuturesByDeviceIdentifier =
       new ConcurrentHashMap<>();
 
   private final Map<String, CompletableFuture<Optional<RestoreAccountRequest>>> waitForRestoreAccountRequestFuturesByToken =
@@ -160,6 +165,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   private static final Duration RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL = Duration.ofHours(1);
   private static final String TRANSFER_ARCHIVE_PREFIX = "transfer_archive::";
   private static final String TRANSFER_ARCHIVE_KEYSPACE_PATTERN = "__keyspace@0__:" + TRANSFER_ARCHIVE_PREFIX + "*";
+  private static final String TRANSFER_ARCHIVE_REGISTRATION_ID_PATTERN = "registrationId";
 
   private static final Duration RESTORE_ACCOUNT_REQUEST_TTL = Duration.ofHours(1);
   private static final String RESTORE_ACCOUNT_REQUEST_PREFIX = "restore_account::";
@@ -199,7 +205,14 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     }
   }
 
-  private record TimestampedDeviceIdentifier(UUID accountIdentifier, byte deviceId, Instant deviceCreationTimestamp) {
+  private interface DeviceIdentifier {}
+
+  private record TimestampDeviceIdentifier(UUID accountIdentifier, byte deviceId, Instant deviceCreationTimestamp)
+      implements DeviceIdentifier {
+  }
+
+  private record RegistrationIdDeviceIdentifier(UUID accountIdentifier, byte deviceId,
+                                                int registrationId) implements DeviceIdentifier {
   }
 
   public AccountsManager(final Accounts accounts,
@@ -210,13 +223,13 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       final KeysManager keysManager,
       final MessagesManager messagesManager,
       final ProfilesManager profilesManager,
-      final StorageClient storageClient,
-      final ValueRecovery2Client valueRecovery2Client,
+      final SecureStorageClient secureStorageClient,
+      final SecureValueRecoveryClient secureValueRecovery2Client,
       final DisconnectionRequestManager disconnectionRequestManager,
       final RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager,
       final ClientPublicKeysManager clientPublicKeysManager,
       final Executor accountLockExecutor,
-      final ScheduledExecutorService messagesPollExecutor,
+      final ScheduledExecutorService messagesPollExecutor, final ScheduledExecutorService retryExecutor,
       final Clock clock,
       final byte[] linkDeviceSecret,
       final DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager) {
@@ -228,13 +241,14 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     this.keysManager = keysManager;
     this.messagesManager = messagesManager;
     this.profilesManager = profilesManager;
-    this.storageClient = storageClient;
-    this.valueRecovery2Client = valueRecovery2Client;
+    this.secureStorageClient = secureStorageClient;
+    this.secureValueRecovery2Client = secureValueRecovery2Client;
     this.disconnectionRequestManager = disconnectionRequestManager;
     this.registrationRecoveryPasswordsManager = requireNonNull(registrationRecoveryPasswordsManager);
     this.clientPublicKeysManager = clientPublicKeysManager;
     this.accountLockExecutor = accountLockExecutor;
     this.messagesPollExecutor = messagesPollExecutor;
+    this.retryExecutor = retryExecutor;
     this.clock = requireNonNull(clock);
     this.dynamicConfigurationManager = dynamicConfigurationManager;
 
@@ -254,8 +268,27 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   public void start() {
     pubSubConnection.usePubSubConnection(connection -> {
       connection.addListener(this);
-      connection.sync().psubscribe(LINKED_DEVICE_KEYSPACE_PATTERN, TRANSFER_ARCHIVE_KEYSPACE_PATTERN,
-          RESTORE_ACCOUNT_REQUEST_KEYSPACE_PATTERN);
+
+      boolean subscribed = false;
+
+      // Loop indefinitely until we establish a subscription. We don't want to fail immediately if there's a temporary
+      // Redis connectivity issue, since that would derail the whole startup process and likely lead to unnecessary pod
+      // churn, which might make things worse. If we never establish a connection, readiness probes will eventually fail
+      // and terminate the pods.
+      do {
+        try {
+          connection.sync().psubscribe(LINKED_DEVICE_KEYSPACE_PATTERN, TRANSFER_ARCHIVE_KEYSPACE_PATTERN,
+              RESTORE_ACCOUNT_REQUEST_KEYSPACE_PATTERN);
+
+          subscribed = true;
+        } catch (final RedisCommandTimeoutException e) {
+          try {
+            Thread.sleep(SUBSCRIBE_RETRY_DELAY);
+          } catch (final InterruptedException ex) {
+            throw new RuntimeException(ex);
+          }
+        }
+      } while (!subscribed);
     });
   }
 
@@ -279,7 +312,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     return createTimer.record(() -> {
       try {
-        return accountLockManager.withLock(List.of(pni),
+        return accountLockManager.withLock(Set.of(pni),
             () -> create(number, pni, accountAttributes, accountBadges, aciIdentityKey, pniIdentityKey, primaryDeviceSpec, userAgent), accountLockExecutor);
       } catch (final Exception e) {
         if (e instanceof RuntimeException runtimeException) {
@@ -311,7 +344,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     account.setNumber(number, pni);
     account.setIdentityKey(aciIdentityKey);
     account.setPhoneNumberIdentityKey(pniIdentityKey);
-    account.addDevice(primaryDeviceSpec.toDevice(Device.PRIMARY_ID, clock));
+    account.addDevice(primaryDeviceSpec.toDevice(Device.PRIMARY_ID, clock, aciIdentityKey));
     account.setRegistrationLockFromAttributes(accountAttributes);
     account.setUnidentifiedAccessKey(accountAttributes.getUnidentifiedAccessKey());
     account.setUnrestrictedUnidentifiedAccess(accountAttributes.isUnrestrictedUnidentifiedAccess());
@@ -376,8 +409,8 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
               keysManager.deleteSingleUsePreKeys(aci),
               keysManager.deleteSingleUsePreKeys(pni),
               messagesManager.clear(aci),
-              profilesManager.deleteAll(aci))
-          .thenCompose(ignored -> disconnectionRequestManager.requestDisconnection(aci))
+              profilesManager.deleteAll(aci, false))
+          .thenCompose(ignored -> disconnectionRequestManager.requestDisconnection(e.getExistingAccount()))
           .thenCompose(ignored -> accounts.reclaimAccount(e.getExistingAccount(), account, additionalWriteItems))
           .thenCompose(ignored -> {
             // We should have cleared all messages before overwriting the old account, but more may have arrived
@@ -390,7 +423,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
             return CompletableFuture.allOf(keysManager.deleteSingleUsePreKeys(aci),
                 keysManager.deleteSingleUsePreKeys(pni),
                 messagesManager.clear(aci),
-                profilesManager.deleteAll(aci));
+                profilesManager.deleteAll(aci, false));
           })
           .join();
     }
@@ -418,7 +451,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   }
 
   public CompletableFuture<Pair<Account, Device>> addDevice(final Account account, final DeviceSpec deviceSpec, final String linkDeviceToken) {
-    return accountLockManager.withLockAsync(List.of(account.getPhoneNumberIdentifier()),
+    return accountLockManager.withLockAsync(Set.of(account.getPhoneNumberIdentifier()),
         () -> addDevice(account.getIdentifier(IdentityType.ACI), deviceSpec, linkDeviceToken, MAX_UPDATE_ATTEMPTS),
         accountLockExecutor);
   }
@@ -439,7 +472,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
           final Account account = accountAndNextDeviceId.first();
           final byte nextDeviceId = accountAndNextDeviceId.second();
 
-          account.addDevice(deviceSpec.toDevice(nextDeviceId, clock));
+          account.addDevice(deviceSpec.toDevice(nextDeviceId, clock, account.getIdentityKey(IdentityType.ACI)));
 
           final List<TransactWriteItem> additionalWriteItems = new ArrayList<>(keysManager.buildWriteItemsForNewDevice(
               account.getIdentifier(IdentityType.ACI),
@@ -478,7 +511,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
           return CompletableFuture.failedFuture(throwable);
         })
-        .whenComplete((updatedAccountAndDevice, throwable) -> {
+        .whenComplete((updatedAccountAndDevice, _) -> {
           if (updatedAccountAndDevice != null) {
             final String key = getLinkedDeviceKey(getLinkDeviceTokenIdentifier(linkDeviceToken));
             final String deviceInfoJson;
@@ -489,9 +522,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
               throw new UncheckedIOException(e);
             }
 
-            pubSubRedisClient.withConnection(connection ->
-                connection.async().set(key, deviceInfoJson, SetArgs.Builder.ex(RECENTLY_ADDED_DEVICE_TTL)))
-                .whenComplete((ignored, pubSubThrowable) -> {
+            ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+                .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection ->
+                    connection.async().set(key, deviceInfoJson, SetArgs.Builder.ex(RECENTLY_ADDED_DEVICE_TTL))))
+                .whenComplete((_, pubSubThrowable) -> {
                   if (pubSubThrowable != null) {
                     logger.warn("Failed to record recently-created device", pubSubThrowable);
                   }
@@ -612,7 +646,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       throw new IllegalArgumentException("Cannot remove primary device");
     }
 
-    return accountLockManager.withLockAsync(List.of(account.getPhoneNumberIdentifier()),
+    return accountLockManager.withLockAsync(Set.of(account.getPhoneNumberIdentifier()),
         () -> removeDevice(account.getIdentifier(IdentityType.ACI), deviceId, MAX_UPDATE_ATTEMPTS),
         accountLockExecutor);
   }
@@ -665,15 +699,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       final Map<Byte, KEMSignedPreKey> pniPqLastResortPreKeys,
       final Map<Byte, Integer> pniRegistrationIds) throws InterruptedException, MismatchedDevicesException {
 
-    final UUID originalPhoneNumberIdentifier = account.getPhoneNumberIdentifier();
     final UUID targetPhoneNumberIdentifier = phoneNumberIdentifiers.getPhoneNumberIdentifier(targetNumber).join();
 
-    if (originalPhoneNumberIdentifier.equals(targetPhoneNumberIdentifier)) {
-      return account;
-    }
-
     try {
-      return accountLockManager.withLock(List.of(account.getPhoneNumberIdentifier(), targetPhoneNumberIdentifier),
+      return accountLockManager.withLock(new HashSet<>(List.of(account.getPhoneNumberIdentifier(), targetPhoneNumberIdentifier)),
           () -> changeNumber(account, targetNumber, targetPhoneNumberIdentifier, pniIdentityKey, pniSignedPreKeys, pniPqLastResortPreKeys, pniRegistrationIds), accountLockExecutor);
     } catch (final Exception e) {
       if (e instanceof MismatchedDevicesException mismatchedDevicesException) {
@@ -701,24 +730,30 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
 
     redisDelete(account);
 
-    // There are three possible states for accounts associated with the target phone number:
+    // There are four possible states for accounts associated with the target phone number:
     //
-    // 1. An account exists with the target PNI; the caller has proved ownership of the number, so delete the
+    // 1. The authenticated account already has the given phone number. We don't want to delete the account, but do want
+    //    to update keys.
+    // 2. An account exists with the target PNI; the caller has proved ownership of the number, so delete the
     //    account with the target PNI. This will leave a "deleted account" record for the deleted account mapping
     //    the UUID of the deleted account to the target PNI. We'll then overwrite that so it points to the
     //    original PNI to facilitate switching back and forth between numbers.
-    // 2. No account with the target PNI exists, but one has recently been deleted. In that case, add a "deleted
+    // 3. No account with the target PNI exists, but one has recently been deleted. In that case, add a "deleted
     //    account" record that maps the ACI of the recently-deleted account to the now-abandoned original PNI
     //    of the account changing its number (which facilitates ACI consistency in cases that a party is switching
     //    back and forth between numbers).
-    // 3. No account with the target PNI exists at all, in which case no additional action is needed.
+    // 4. No account with the target PNI exists at all, in which case no additional action is needed.
     final Optional<UUID> recentlyDeletedAci = accounts.findRecentlyDeletedAccountIdentifier(targetPhoneNumberIdentifier);
     final Optional<Account> maybeExistingAccount = getByE164(targetNumber);
     final Optional<UUID> maybeDisplacedUuid;
 
     if (maybeExistingAccount.isPresent()) {
-      delete(maybeExistingAccount.get()).join();
-      maybeDisplacedUuid = maybeExistingAccount.map(Account::getUuid);
+      if (maybeExistingAccount.get().getIdentifier(IdentityType.ACI).equals(account.getIdentifier(IdentityType.ACI))) {
+        maybeDisplacedUuid = Optional.empty();
+      } else {
+        delete(maybeExistingAccount.get()).join();
+        maybeDisplacedUuid = maybeExistingAccount.map(Account::getUuid);
+      }
     } else {
       maybeDisplacedUuid = recentlyDeletedAci;
     }
@@ -742,45 +777,6 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
         a -> accounts.changeNumber(a, targetNumber, targetPhoneNumberIdentifier, maybeDisplacedUuid, keyWriteItems),
         () -> accounts.getByAccountIdentifier(uuid).orElseThrow(),
         AccountChangeValidator.NUMBER_CHANGE_VALIDATOR);
-  }
-
-  public Account updatePniKeys(final Account account,
-      final IdentityKey pniIdentityKey,
-      final Map<Byte, ECSignedPreKey> pniSignedPreKeys,
-      final Map<Byte, KEMSignedPreKey> pniPqLastResortPreKeys,
-      final Map<Byte, Integer> pniRegistrationIds) throws MismatchedDevicesException {
-
-    try {
-      return accountLockManager.withLock(List.of(account.getIdentifier(IdentityType.PNI)), () -> {
-        validateDevices(account, pniSignedPreKeys, pniPqLastResortPreKeys, pniRegistrationIds);
-
-        final UUID aci = account.getIdentifier(IdentityType.ACI);
-        final UUID pni = account.getIdentifier(IdentityType.PNI);
-
-        final Collection<TransactWriteItem> keyWriteItems =
-            buildPniKeyWriteItems(pni, pniSignedPreKeys, pniPqLastResortPreKeys);
-
-        return redisDeleteAsync(account)
-            .thenCompose(ignored -> keysManager.deleteSingleUsePreKeys(pni))
-            .thenCompose(ignored -> updateTransactionallyWithRetriesAsync(account,
-                a -> setPniKeys(a, pniIdentityKey, pniRegistrationIds),
-                accounts::updateTransactionallyAsync,
-                () -> accounts.getByAccountIdentifierAsync(aci).thenApply(Optional::orElseThrow),
-                a -> keyWriteItems,
-                AccountChangeValidator.GENERAL_CHANGE_VALIDATOR,
-                MAX_UPDATE_ATTEMPTS))
-            .join();
-      }, accountLockExecutor);
-    } catch (final Exception e) {
-      if (e instanceof MismatchedDevicesException mismatchedDevicesException) {
-        throw mismatchedDevicesException;
-      } else if (e instanceof RuntimeException runtimeException) {
-        throw runtimeException;
-      }
-
-      logger.error("Unexpected exception when updating PNI key material", e);
-      throw new RuntimeException(e);
-    }
   }
 
   private Collection<TransactWriteItem> buildPniKeyWriteItems(
@@ -1121,42 +1117,6 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     return CompletableFuture.failedFuture(new OptimisticLockRetryLimitExceededException());
   }
 
-  private CompletionStage<Account> updateTransactionallyWithRetriesAsync(final Account account,
-      final Consumer<Account> updater,
-      final BiFunction<Account, Collection<TransactWriteItem>, CompletionStage<Void>> persister,
-      final Supplier<CompletionStage<Account>> retriever,
-      final Function<Account, Collection<TransactWriteItem>> additionalWriteItemProvider,
-      final AccountChangeValidator changeValidator,
-      final int remainingTries) {
-
-    final Account originalAccount = AccountUtil.cloneAccountAsNotStale(account);
-
-    final Collection<TransactWriteItem> additionalWriteItems = additionalWriteItemProvider.apply(account);
-    updater.accept(account);
-
-    if (remainingTries > 0) {
-      return persister.apply(account, additionalWriteItems)
-          .thenApply(ignored -> {
-            final Account updatedAccount = AccountUtil.cloneAccountAsNotStale(account);
-            account.markStale();
-
-            changeValidator.validateChange(originalAccount, updatedAccount);
-
-            return updatedAccount;
-          })
-          .exceptionallyCompose(throwable -> {
-            if (ExceptionUtils.unwrap(throwable) instanceof ContestedOptimisticLockException) {
-              return retriever.get().thenCompose(refreshedAccount ->
-                  updateTransactionallyWithRetriesAsync(refreshedAccount, updater, persister, retriever, additionalWriteItemProvider, changeValidator, remainingTries - 1));
-            } else {
-              throw ExceptionUtils.wrap(throwable);
-            }
-          });
-    }
-
-    return CompletableFuture.failedFuture(new OptimisticLockRetryLimitExceededException());
-  }
-
   public Account updateDevice(Account account, byte deviceId, Consumer<Device> deviceUpdater) {
     return update(account, a -> {
       a.getDevice(deviceId).ifPresent(deviceUpdater);
@@ -1265,7 +1225,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   public CompletableFuture<Void> delete(final Account account, final DeletionReason deletionReason) {
     final Timer.Sample sample = Timer.start();
 
-    return accountLockManager.withLockAsync(List.of(account.getPhoneNumberIdentifier()), () -> delete(account),
+    return accountLockManager.withLockAsync(Set.of(account.getPhoneNumberIdentifier()), () -> delete(account),
             accountLockExecutor)
         .whenComplete((ignored, throwable) -> {
           sample.stop(deleteTimer);
@@ -1294,28 +1254,17 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
                     account.getIdentifier(IdentityType.ACI),
                     device.getId())))
         .toList();
-    final CompletableFuture<Void> svr2DeleteBackupFuture = valueRecovery2Client.deleteBackups(account.getUuid())
-        .exceptionally(ExceptionUtils.exceptionallyHandler(SecureValueRecoveryException.class, exception -> {
-          final List<String> svrStatusCodesToIgnore = dynamicConfigurationManager.getConfiguration().getSvrStatusCodesToIgnoreForAccountDeletion();
-          if (svrStatusCodesToIgnore.contains(exception.getStatusCode())) {
-            logger.warn("Ignoring failure to delete svr2 backup for account: " + account.getUuid(), exception);
-            return null;
-          }
-          logger.warn("Failed to delete svr2 backup for account: " + account.getUuid(), exception);
-          throw new CompletionException(exception);
-        }));
-
     return CompletableFuture.allOf(
-            storageClient.deleteStoredData(account.getUuid()),
-            svr2DeleteBackupFuture,
+            secureStorageClient.deleteStoredData(account.getUuid()),
+            secureValueRecovery2Client.removeData(account.getUuid()),
             keysManager.deleteSingleUsePreKeys(account.getUuid()),
             keysManager.deleteSingleUsePreKeys(account.getPhoneNumberIdentifier()),
             messagesManager.clear(account.getUuid()),
-            profilesManager.deleteAll(account.getUuid()),
+            profilesManager.deleteAll(account.getUuid(), true),
             registrationRecoveryPasswordsManager.remove(account.getIdentifier(IdentityType.PNI)))
         .thenCompose(ignored -> accounts.delete(account.getUuid(), additionalWriteItems))
         .thenCompose(ignored -> redisDeleteAsync(account))
-        .thenRun(() -> disconnectionRequestManager.requestDisconnection(account.getUuid()));
+        .thenRun(() -> disconnectionRequestManager.requestDisconnection(account));
   }
 
   private String getAccountMapKey(String key) {
@@ -1478,10 +1427,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   }
 
   private void redisDelete(final Account account) {
-    redisDeleteTimer.record(() ->
-        cacheCluster.useCluster(connection ->
-            connection.sync().del(getAccountMapKey(account.getPhoneNumberIdentifier().toString()),
-                getAccountEntityKey(account.getUuid()))));
+    ResilienceUtil.getGeneralRedisRetry(RETRY_NAME).executeRunnable(() ->
+        redisDeleteTimer.record(() ->
+            cacheCluster.useCluster(connection ->
+                connection.sync().del(getAccountMapKey(account.getPhoneNumberIdentifier().toString()),
+                    getAccountEntityKey(account.getUuid())))));
   }
 
   private CompletableFuture<Void> redisDeleteAsync(final Account account) {
@@ -1492,10 +1442,11 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
         getAccountEntityKey(account.getUuid())
     };
 
-    return cacheCluster.withCluster(connection -> connection.async().del(keysToDelete))
+    return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME).executeCompletionStage(retryExecutor,
+            () -> cacheCluster.withCluster(connection -> connection.async().del(keysToDelete))
+                .thenRun(Util.NOOP))
         .toCompletableFuture()
-        .whenComplete((ignoredResult, ignoredException) -> sample.stop(redisDeleteTimer))
-        .thenRun(Util.NOOP);
+        .whenComplete((_, _) -> sample.stop(redisDeleteTimer));
   }
 
   public CompletableFuture<Optional<DeviceInfo>> waitForNewLinkedDevice(
@@ -1596,32 +1547,64 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
   }
 
   public CompletableFuture<Optional<TransferArchiveResult>> waitForTransferArchive(final Account account, final Device device, final Duration timeout) {
-    final TimestampedDeviceIdentifier deviceIdentifier =
-        new TimestampedDeviceIdentifier(account.getIdentifier(IdentityType.ACI),
-            device.getId(),
-            Instant.ofEpochMilli(device.getCreated()));
+    final DeviceIdentifier timestampDeviceIdentifier = new TimestampDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
+    final String timestampTransferArchiveKey = getTimestampTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated()));
 
-    return waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
-        deviceIdentifier,
-        getTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), Instant.ofEpochMilli(device.getCreated())),
+    final DeviceIdentifier registrationIdDeviceIdentifier = new RegistrationIdDeviceIdentifier(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
+    final String registrationIdTransferArchiveKey = getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), device.getId(), device.getRegistrationId(IdentityType.ACI));
+
+    final CompletableFuture<Optional<TransferArchiveResult>> timestampFuture = waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
+        timestampDeviceIdentifier,
+        timestampTransferArchiveKey,
         timeout,
         this::handleTransferArchiveAdded);
+
+    final CompletableFuture<Optional<TransferArchiveResult>> registrationIdFuture = waitForPubSubKey(waitForTransferArchiveFuturesByDeviceIdentifier,
+        registrationIdDeviceIdentifier,
+        registrationIdTransferArchiveKey,
+        timeout,
+        this::handleTransferArchiveAdded);
+    return firstSuccessfulTransferArchiveFuture(List.of(timestampFuture, registrationIdFuture));
+  }
+
+  @VisibleForTesting
+  static CompletableFuture<Optional<TransferArchiveResult>> firstSuccessfulTransferArchiveFuture(
+      final List<CompletableFuture<Optional<TransferArchiveResult>>> futures) {
+    final CompletableFuture<Optional<TransferArchiveResult>> result = new CompletableFuture<>();
+    final AtomicInteger remaining = new AtomicInteger(futures.size());
+
+    for (CompletableFuture<Optional<TransferArchiveResult>> future : futures) {
+      future.whenComplete((value, _) -> {
+        if (value.isPresent()) {
+          result.complete(value);
+        } else if (remaining.decrementAndGet() == 0) {
+          result.complete(Optional.empty());
+        }
+      });
+    }
+
+    return result;
   }
 
   public CompletableFuture<Void> recordTransferArchiveUpload(final Account account,
       final byte destinationDeviceId,
-      final Instant destinationDeviceCreationTimestamp,
+      @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Instant> destinationDeviceCreationTimestamp,
+      @SuppressWarnings("OptionalUsedAsFieldOrParameterType") final Optional<Integer> maybeRegistrationId,
       final TransferArchiveResult transferArchiveResult) {
-
-    final String key = getTransferArchiveKey(account.getIdentifier(IdentityType.ACI),
-        destinationDeviceId,
-        destinationDeviceCreationTimestamp);
-
     try {
       final String transferArchiveJson = SystemMapper.jsonMapper().writeValueAsString(transferArchiveResult);
 
-      return pubSubRedisClient.withConnection(connection ->
-              connection.async().set(key, transferArchiveJson, SetArgs.Builder.ex(RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL)))
+      final String key = destinationDeviceCreationTimestamp
+          .map(timestamp -> getTimestampTransferArchiveKey(account.getIdentifier(IdentityType.ACI), destinationDeviceId, timestamp))
+          .orElseGet(() -> maybeRegistrationId
+              .map(registrationId -> getRegistrationIdTransferArchiveKey(account.getIdentifier(IdentityType.ACI), destinationDeviceId, registrationId))
+              // We validate the request object so this should never happen
+              .orElseThrow(() -> new AssertionError("No creation timestamp or registration ID provided")));
+
+      return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+          .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection -> connection.async()
+                  .set(key, transferArchiveJson, SetArgs.Builder.ex(RECENTLY_ADDED_TRANSFER_ARCHIVE_TTL)))
+              .toCompletableFuture())
           .thenRun(Util.NOOP)
           .toCompletableFuture();
     } catch (final JsonProcessingException e) {
@@ -1639,13 +1622,25 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     }
   }
 
-  private static String getTransferArchiveKey(final UUID accountIdentifier,
+  private static String getTimestampTransferArchiveKey(final UUID accountIdentifier,
       final byte destinationDeviceId,
       final Instant destinationDeviceCreationTimestamp) {
+    Metrics.counter(TIMESTAMP_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME).increment();
 
     return TRANSFER_ARCHIVE_PREFIX + accountIdentifier.toString() +
         ":" + destinationDeviceId +
         ":" + destinationDeviceCreationTimestamp.toEpochMilli();
+  }
+
+  private static String getRegistrationIdTransferArchiveKey(final UUID accountIdentifier,
+      final byte destinationDeviceId,
+      final int registrationId) {
+    Metrics.counter(REGISTRATION_ID_BASED_TRANSFER_ARCHIVE_KEY_COUNTER_NAME).increment();
+
+    return TRANSFER_ARCHIVE_PREFIX + accountIdentifier.toString() +
+        ":" + destinationDeviceId +
+        ":" + TRANSFER_ARCHIVE_REGISTRATION_ID_PATTERN +
+        ":" + registrationId;
   }
 
   public CompletableFuture<Optional<RestoreAccountRequest>> waitForRestoreAccountRequest(final String token, final Duration timeout) {
@@ -1667,8 +1662,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
       throw new UncheckedIOException(e);
     }
 
-    return pubSubRedisClient.withConnection(connection ->
-            connection.async().set(key, requestJson, SetArgs.Builder.ex(RESTORE_ACCOUNT_REQUEST_TTL)))
+    return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+        .executeCompletionStage(retryExecutor, () -> pubSubRedisClient.withConnection(connection ->
+                connection.async().set(key, requestJson, SetArgs.Builder.ex(RESTORE_ACCOUNT_REQUEST_TTL)))
+            .toCompletableFuture())
         .thenRun(Util.NOOP)
         .toCompletableFuture();
   }
@@ -1735,23 +1732,36 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     } else if (TRANSFER_ARCHIVE_KEYSPACE_PATTERN.equals(pattern) && "set".equalsIgnoreCase(message)) {
       // The `- 1` here compensates for the '*' in the pattern
       final String[] deviceIdentifierComponents =
-          channel.substring(TRANSFER_ARCHIVE_KEYSPACE_PATTERN.length() - 1).split(":", 3);
+          channel.substring(TRANSFER_ARCHIVE_KEYSPACE_PATTERN.length() - 1).split(":", 4);
 
-      if (deviceIdentifierComponents.length != 3) {
-        logger.error("Could not parse timestamped device identifier; unexpected component count");
+      if (deviceIdentifierComponents.length != 3 && deviceIdentifierComponents.length != 4) {
+        logger.error("Could not parse device identifier; unexpected component count");
         return;
       }
 
+      final DeviceIdentifier deviceIdentifier;
+      final String transferArchiveKey;
       try {
-        final TimestampedDeviceIdentifier deviceIdentifier;
-        final String transferArchiveKey;
-        {
-          final UUID accountIdentifier = UUID.fromString(deviceIdentifierComponents[0]);
-          final byte deviceId = Byte.parseByte(deviceIdentifierComponents[1]);
+        final UUID accountIdentifier = UUID.fromString(deviceIdentifierComponents[0]);
+        final byte deviceId = Byte.parseByte(deviceIdentifierComponents[1]);
+
+        if (deviceIdentifierComponents.length == 3) {
+          // Parse the old transfer archive Redis key format
           final Instant deviceCreationTimestamp = Instant.ofEpochMilli(Long.parseLong(deviceIdentifierComponents[2]));
 
-          deviceIdentifier = new TimestampedDeviceIdentifier(accountIdentifier, deviceId, deviceCreationTimestamp);
-          transferArchiveKey = getTransferArchiveKey(accountIdentifier, deviceId, deviceCreationTimestamp);
+          deviceIdentifier = new TimestampDeviceIdentifier(accountIdentifier, deviceId, deviceCreationTimestamp);
+          transferArchiveKey = getTimestampTransferArchiveKey(accountIdentifier, deviceId, deviceCreationTimestamp);
+        } else {
+          final String maybeRegistrationIdPattern = deviceIdentifierComponents[2];
+          if (!maybeRegistrationIdPattern.equals(TRANSFER_ARCHIVE_REGISTRATION_ID_PATTERN)) {
+            throw new IllegalArgumentException("Could not parse Redis key with pattern " + maybeRegistrationIdPattern);
+          }
+          final int registrationId = Integer.parseInt(deviceIdentifierComponents[3]);
+          if (!RegistrationIdValidator.validRegistrationId(registrationId)) {
+            throw new IllegalArgumentException("Invalid registration ID: " + registrationId);
+          }
+          deviceIdentifier = new RegistrationIdDeviceIdentifier(accountIdentifier, deviceId, registrationId);
+          transferArchiveKey = getRegistrationIdTransferArchiveKey(accountIdentifier, deviceId, registrationId);
         }
 
         Optional.ofNullable(waitForTransferArchiveFuturesByDeviceIdentifier.remove(deviceIdentifier))
@@ -1764,7 +1774,7 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
                   }
                 }));
       } catch (final IllegalArgumentException e) {
-        logger.error("Could not parse timestamped device identifier", e);
+        logger.error("Could not parse device identifier", e);
       }
     } else if (RESTORE_ACCOUNT_REQUEST_KEYSPACE_PATTERN.equalsIgnoreCase(pattern) && "set".equalsIgnoreCase(message)) {
       // The `- 1` here compensates for the '*' in the pattern

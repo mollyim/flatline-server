@@ -3,9 +3,12 @@ package org.whispersystems.textsecuregcm.storage;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,7 +38,6 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junitpioneer.jupiter.cartesian.ArgumentSets;
 import org.junitpioneer.jupiter.cartesian.CartesianTest;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
@@ -44,11 +46,12 @@ import org.whispersystems.textsecuregcm.entities.ApnRegistrationId;
 import org.whispersystems.textsecuregcm.entities.ECSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.GcmRegistrationId;
 import org.whispersystems.textsecuregcm.entities.KEMSignedPreKey;
+import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.tests.util.KeysHelper;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 
@@ -66,6 +69,7 @@ public class AccountCreationDeletionIntegrationTest {
       DynamoDbExtensionSchema.Tables.USERNAMES,
       DynamoDbExtensionSchema.Tables.EC_KEYS,
       DynamoDbExtensionSchema.Tables.PQ_KEYS,
+      DynamoDbExtensionSchema.Tables.PAGED_PQ_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
 
@@ -131,8 +135,8 @@ public class AccountCreationDeletionIntegrationTest {
     final SecureStorageClient secureStorageClient = mock(SecureStorageClient.class);
     when(secureStorageClient.deleteStoredData(any())).thenReturn(CompletableFuture.completedFuture(null));
 
-    final SecureValueRecovery2Client svr2Client = mock(SecureValueRecovery2Client.class);
-    when(svr2Client.deleteBackups(any())).thenReturn(CompletableFuture.completedFuture(null));
+    final SecureValueRecoveryClient svr2Client = mock(SecureValueRecoveryClient.class);
+    when(svr2Client.removeData(any(UUID.class))).thenReturn(CompletableFuture.completedFuture(null));
 
     final PhoneNumberIdentifiers phoneNumberIdentifiers =
         new PhoneNumberIdentifiers(DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(),
@@ -142,7 +146,7 @@ public class AccountCreationDeletionIntegrationTest {
     when(messagesManager.clear(any())).thenReturn(CompletableFuture.completedFuture(null));
 
     final ProfilesManager profilesManager = mock(ProfilesManager.class);
-    when(profilesManager.deleteAll(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(profilesManager.deleteAll(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
     final RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager =
         mock(RegistrationRecoveryPasswordsManager.class);
@@ -167,6 +171,7 @@ public class AccountCreationDeletionIntegrationTest {
         disconnectionRequestManager,
         registrationRecoveryPasswordsManager,
         clientPublicKeysManager,
+        executor,
         executor,
         executor,
         CLOCK,
@@ -213,8 +218,8 @@ public class AccountCreationDeletionIntegrationTest {
         CLOCK.instant().plus(Duration.ofDays(7)),
         true)));
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final ECSignedPreKey aciSignedPreKey = KeysHelper.signedECPreKey(1, aciKeyPair);
     final ECSignedPreKey pniSignedPreKey = KeysHelper.signedECPreKey(2, pniKeyPair);
@@ -301,15 +306,15 @@ public class AccountCreationDeletionIntegrationTest {
 
     final UUID existingAccountUuid;
     {
-      final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
       final ECSignedPreKey aciSignedPreKey = KeysHelper.signedECPreKey(1, aciKeyPair);
       final ECSignedPreKey pniSignedPreKey = KeysHelper.signedECPreKey(2, pniKeyPair);
       final KEMSignedPreKey aciPqLastResortPreKey = KeysHelper.signedKEMPreKey(3, aciKeyPair);
       final KEMSignedPreKey pniPqLastResortPreKey = KeysHelper.signedKEMPreKey(4, pniKeyPair);
 
-      final Account originalAccount = accountsManager.create(number,
+      final Account existingAccount = accountsManager.create(number,
           new AccountAttributes(true, 1, 1, "name".getBytes(StandardCharsets.UTF_8), "registration-lock", false, Set.of()),
           Collections.emptyList(),
           new IdentityKey(aciKeyPair.getPublicKey()),
@@ -329,7 +334,7 @@ public class AccountCreationDeletionIntegrationTest {
               pniPqLastResortPreKey),
           null);
 
-      existingAccountUuid = originalAccount.getUuid();
+      existingAccountUuid = existingAccount.getUuid();
     }
 
     final String password = RandomStringUtils.secure().nextAlphanumeric(16);
@@ -354,8 +359,8 @@ public class AccountCreationDeletionIntegrationTest {
         CLOCK.instant().plus(Duration.ofDays(7)),
         true)));
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final ECSignedPreKey aciSignedPreKey = KeysHelper.signedECPreKey(1, aciKeyPair);
     final ECSignedPreKey pniSignedPreKey = KeysHelper.signedECPreKey(2, pniKeyPair);
@@ -412,7 +417,8 @@ public class AccountCreationDeletionIntegrationTest {
 
     assertEquals(existingAccountUuid, reregisteredAccount.getUuid());
 
-    verify(disconnectionRequestManager).requestDisconnection(existingAccountUuid);
+    verify(disconnectionRequestManager).requestDisconnection(argThat(account ->
+        account.getIdentifier(IdentityType.ACI).equals(existingAccountUuid) && account != reregisteredAccount));
   }
 
   @Test
@@ -443,8 +449,8 @@ public class AccountCreationDeletionIntegrationTest {
         CLOCK.instant().plus(Duration.ofDays(7)),
         true)));
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final ECSignedPreKey aciSignedPreKey = KeysHelper.signedECPreKey(1, aciKeyPair);
     final ECSignedPreKey pniSignedPreKey = KeysHelper.signedECPreKey(2, pniKeyPair);
@@ -472,7 +478,7 @@ public class AccountCreationDeletionIntegrationTest {
             pniPqLastResortPreKey),
         null);
 
-    clientPublicKeysManager.setPublicKey(account, Device.PRIMARY_ID, Curve.generateKeyPair().getPublicKey()).join();
+    clientPublicKeysManager.setPublicKey(account, Device.PRIMARY_ID, ECKeyPair.generate().getPublicKey()).join();
 
     final UUID aci = account.getIdentifier(IdentityType.ACI);
 
@@ -487,7 +493,7 @@ public class AccountCreationDeletionIntegrationTest {
     assertFalse(keysManager.getLastResort(account.getPhoneNumberIdentifier(), Device.PRIMARY_ID).join().isPresent());
     assertFalse(clientPublicKeysManager.findPublicKey(account.getUuid(), Device.PRIMARY_ID).join().isPresent());
 
-    verify(disconnectionRequestManager).requestDisconnection(aci);
+    verify(disconnectionRequestManager).requestDisconnection(account);
   }
 
   @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
@@ -532,7 +538,7 @@ public class AccountCreationDeletionIntegrationTest {
 
     assertTrue(account.getRegistrationLock().verify(registrationLockSecret));
     assertTrue(primaryDevice.getAuthTokenHash().verify(password));
-
+    assertNotNull(primaryDevice.getCreatedAtCiphertext());
     assertEquals(Optional.of(aciSignedPreKey), keysManager.getEcSignedPreKey(account.getIdentifier(IdentityType.ACI), Device.PRIMARY_ID).join());
     assertEquals(Optional.of(pniSignedPreKey), keysManager.getEcSignedPreKey(account.getIdentifier(IdentityType.PNI), Device.PRIMARY_ID).join());
     assertEquals(Optional.of(aciPqLastResortPreKey), keysManager.getLastResort(account.getIdentifier(IdentityType.ACI), Device.PRIMARY_ID).join());

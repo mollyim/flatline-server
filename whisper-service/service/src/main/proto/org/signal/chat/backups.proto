@@ -189,6 +189,11 @@ service BackupsAnonymous {
   rpc GetCdnCredentials(GetCdnCredentialsRequest) returns (GetCdnCredentialsResponse) {}
 
   /**
+   * Retrieve credentials used to interact with the SecureValueRecoveryB service
+   */
+  rpc GetSvrBCredentials(GetSvrBCredentialsRequest) returns (GetSvrBCredentialsResponse) {}
+
+  /**
    * Retrieve information about the currently stored backup
    */
   rpc GetBackupInfo(GetBackupInfoRequest) returns (GetBackupInfoResponse) {}
@@ -212,6 +217,10 @@ service BackupsAnonymous {
 
   /**
    * Retrieve an upload form that can be used to perform a resumable upload
+   *
+   * Trying to request an upload form larger than the maximum supported upload
+   * size will return a PRECONDITION_FAILED error. The maximum upload size is
+   * subject to change.
    */
   rpc GetUploadForm(GetUploadFormRequest) returns (GetUploadFormResponse) {}
 
@@ -287,6 +296,21 @@ message GetCdnCredentialsResponse {
   map<string, string> headers = 1;
 }
 
+message GetSvrBCredentialsRequest {
+  SignedPresentation signed_presentation = 1;
+}
+message GetSvrBCredentialsResponse {
+  /**
+ * A username that can be presented to authenticate with SVRB
+ */
+  string username = 1;
+
+  /**
+   * A password that can be presented to authenticate with SVRB
+   */
+  string password = 2;
+}
+
 message GetBackupInfoRequest {
   SignedPresentation signed_presentation = 1;
 }
@@ -333,7 +357,9 @@ message RefreshResponse {
 message GetUploadFormRequest {
   SignedPresentation signed_presentation = 1;
 
-  message MessagesUploadType {}
+  message MessagesUploadType {
+    uint64 uploadLength = 1;
+  }
   message MediaUploadType {}
   oneof upload_type {
     /**

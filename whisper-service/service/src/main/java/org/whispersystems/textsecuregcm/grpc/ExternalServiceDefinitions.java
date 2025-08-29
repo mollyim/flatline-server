@@ -18,7 +18,7 @@ import org.whispersystems.textsecuregcm.WhisperServerConfiguration;
 import org.whispersystems.textsecuregcm.auth.ExternalServiceCredentialsGenerator;
 import org.whispersystems.textsecuregcm.configuration.DirectoryV2ClientConfiguration;
 import org.whispersystems.textsecuregcm.configuration.PaymentsServiceConfiguration;
-import org.whispersystems.textsecuregcm.configuration.SecureValueRecovery2Configuration;
+import org.whispersystems.textsecuregcm.configuration.SecureValueRecoveryConfiguration;
 
 enum ExternalServiceDefinitions {
   DIRECTORY(ExternalServiceType.EXTERNAL_SERVICE_TYPE_DIRECTORY, (chatConfig, clock) -> {
@@ -38,7 +38,7 @@ enum ExternalServiceDefinitions {
         .build();
   }),
   SVR(ExternalServiceType.EXTERNAL_SERVICE_TYPE_SVR, (chatConfig, clock) -> {
-    final SecureValueRecovery2Configuration cfg = chatConfig.getSvr2Configuration();
+    final SecureValueRecoveryConfiguration cfg = chatConfig.getSvr2Configuration();
     return ExternalServiceCredentialsGenerator
         .builder(cfg.userAuthenticationTokenSharedSecret())
         .withUserDerivationKey(cfg.userIdTokenSharedSecret().value())

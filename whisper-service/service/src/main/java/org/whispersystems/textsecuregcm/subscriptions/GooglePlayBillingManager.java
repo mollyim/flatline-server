@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.whispersystems.textsecuregcm.controllers.RateLimitExceededException;
 import org.whispersystems.textsecuregcm.metrics.MetricsUtil;
 import org.whispersystems.textsecuregcm.storage.PaymentTime;
 import org.whispersystems.textsecuregcm.storage.SubscriptionException;
@@ -168,11 +169,13 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
 
       Metrics.counter(VALIDATE_COUNTER_NAME, subscriptionTags(subscription)).increment();
 
-      // We only ever acknowledge valid tokens. There are cases where a subscription was once valid and then was
-      // cancelled, so the user could still be entitled to their purchase. However, if we never acknowledge it, the
-      // user's charge will eventually be refunded anyway. See
-      // https://developer.android.com/google/play/billing/integrate#pending
-      if (state != SubscriptionState.ACTIVE) {
+      // We only accept tokens in a state where the user may be entitled to their purchase. This is true even in the
+      // CANCELLED state. For example, a user may subscribe for 1 month, then immediately cancel (disabling auto-renew)
+      // and then submit their token. In this case they should still be able to retrieve their entitlement.
+      // See https://developer.android.com/google/play/billing/integrate#life
+      if (state != SubscriptionState.ACTIVE
+          && state != SubscriptionState.IN_GRACE_PERIOD
+          && state != SubscriptionState.CANCELED) {
         throw ExceptionUtils.wrap(new SubscriptionException.PaymentRequired(
             "Cannot acknowledge purchase for subscription in state " + subscription.getSubscriptionState()));
       }
@@ -239,11 +242,14 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
       final SubscriptionStatus status = switch (SubscriptionState
           .fromString(subscription.getSubscriptionState())
           .orElse(SubscriptionState.UNSPECIFIED)) {
-        case ACTIVE -> SubscriptionStatus.ACTIVE;
+        // In play terminology CANCELLED is the same as an active subscription with cancelAtPeriodEnd set in Stripe. So
+        // it should map to the ACTIVE stripe status.
+        case ACTIVE, CANCELED -> SubscriptionStatus.ACTIVE;
         case PENDING -> SubscriptionStatus.INCOMPLETE;
-        case EXPIRED, ON_HOLD, PAUSED -> SubscriptionStatus.PAST_DUE;
+        case ON_HOLD, PAUSED -> SubscriptionStatus.PAST_DUE;
         case IN_GRACE_PERIOD -> SubscriptionStatus.UNPAID;
-        case CANCELED, PENDING_PURCHASE_CANCELED -> SubscriptionStatus.CANCELED;
+        // EXPIRED is the equivalent of a Stripe CANCELLED subscription
+        case EXPIRED, PENDING_PURCHASE_CANCELED -> SubscriptionStatus.CANCELED;
         case UNSPECIFIED -> SubscriptionStatus.UNKNOWN;
       };
 
@@ -362,10 +368,14 @@ public class GooglePlayBillingManager implements SubscriptionPaymentProcessor {
               || e.getStatusCode() == Response.Status.GONE.getStatusCode()) {
             throw ExceptionUtils.wrap(new SubscriptionException.NotFound());
           }
+          if (e.getStatusCode() == Response.Status.TOO_MANY_REQUESTS.getStatusCode()) {
+            throw ExceptionUtils.wrap(new RateLimitExceededException(null));
+          }
           final String details = e instanceof GoogleJsonResponseException
               ? ((GoogleJsonResponseException) e).getDetails().toString()
               : "";
-          logger.warn("Unexpected HTTP status code {} from androidpublisher: {}", e.getStatusCode(), details, e);
+
+          logger.warn("Unexpected HTTP status code {} from androidpublisher: {}", e.getStatusCode(), details);
           throw ExceptionUtils.wrap(e);
         }));
   }

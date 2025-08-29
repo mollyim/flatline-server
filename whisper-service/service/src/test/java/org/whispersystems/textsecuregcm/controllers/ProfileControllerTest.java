@@ -63,7 +63,7 @@ import org.junitpioneer.jupiter.cartesian.CartesianTest;
 import org.mockito.ArgumentCaptor;
 import org.signal.libsignal.protocol.IdentityKey;
 import org.signal.libsignal.protocol.ServiceId;
-import org.signal.libsignal.protocol.ecc.Curve;
+import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.signal.libsignal.zkgroup.InvalidInputException;
 import org.signal.libsignal.zkgroup.ServerPublicParams;
 import org.signal.libsignal.zkgroup.ServerSecretParams;
@@ -131,10 +131,10 @@ class ProfileControllerTest {
   private static final ServerSecretParams serverSecretParams = ServerSecretParams.generate();
 
   private static final byte[] UNIDENTIFIED_ACCESS_KEY = "sixteenbytes1234".getBytes(StandardCharsets.UTF_8);
-  private static final IdentityKey ACCOUNT_IDENTITY_KEY = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-  private static final IdentityKey ACCOUNT_PHONE_NUMBER_IDENTITY_KEY = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-  private static final IdentityKey ACCOUNT_TWO_IDENTITY_KEY = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-  private static final IdentityKey ACCOUNT_TWO_PHONE_NUMBER_IDENTITY_KEY = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+  private static final IdentityKey ACCOUNT_IDENTITY_KEY = new IdentityKey(ECKeyPair.generate().getPublicKey());
+  private static final IdentityKey ACCOUNT_PHONE_NUMBER_IDENTITY_KEY = new IdentityKey(ECKeyPair.generate().getPublicKey());
+  private static final IdentityKey ACCOUNT_TWO_IDENTITY_KEY = new IdentityKey(ECKeyPair.generate().getPublicKey());
+  private static final IdentityKey ACCOUNT_TWO_PHONE_NUMBER_IDENTITY_KEY = new IdentityKey(ECKeyPair.generate().getPublicKey());
   private static final String BASE_64_URL_USERNAME_HASH = "9p6Tip7BFefFOJzv4kv4GyXEYsBVfk_WbjNejdlOvQE";
   private static final byte[] USERNAME_HASH = Base64.getUrlDecoder().decode(BASE_64_URL_USERNAME_HASH);
   @SuppressWarnings("unchecked")
@@ -442,9 +442,7 @@ class ProfileControllerTest {
 
   @CartesianTest
   void testProfileCapabilities(
-      @CartesianTest.Values(booleans = {true, false}) final boolean isDeleteSyncSupported,
       @CartesianTest.Values(booleans = {true, false}) final boolean isAttachmentBackfillSupported) {
-    when(capabilitiesAccount.hasCapability(DeviceCapability.DELETE_SYNC)).thenReturn(isDeleteSyncSupported);
     when(capabilitiesAccount.hasCapability(DeviceCapability.ATTACHMENT_BACKFILL)).thenReturn(isAttachmentBackfillSupported);
     final BaseProfileResponse profile = resources.getJerseyTest()
         .target("/v1/profile/" + AuthHelper.VALID_UUID)
@@ -452,7 +450,6 @@ class ProfileControllerTest {
         .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
         .get(BaseProfileResponse.class);
 
-    assertEquals(isDeleteSyncSupported, profile.getCapabilities().get("deleteSync"));
     assertEquals(isAttachmentBackfillSupported, profile.getCapabilities().get("attachmentBackfill"));
   }
 
@@ -930,14 +927,14 @@ class ProfileControllerTest {
         .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
         .get(VersionedProfileResponse.class);
 
-    assertThat(profile.getBaseProfileResponse().getIdentityKey()).isEqualTo(ACCOUNT_TWO_IDENTITY_KEY);
-    assertThat(profile.getName()).containsExactly(name);
-    assertThat(profile.getAbout()).containsExactly(about);
-    assertThat(profile.getAboutEmoji()).containsExactly(emoji);
-    assertThat(profile.getAvatar()).isEqualTo("profiles/validavatar");
-    assertThat(profile.getPhoneNumberSharing()).containsExactly(phoneNumberSharing);
-    assertThat(profile.getBaseProfileResponse().getUuid()).isEqualTo(new AciServiceIdentifier(AuthHelper.VALID_UUID_TWO));
-    assertThat(profile.getBaseProfileResponse().getBadges()).hasSize(1).element(0).has(new Condition<>(
+    assertThat(profile.baseProfileResponse().getIdentityKey()).isEqualTo(ACCOUNT_TWO_IDENTITY_KEY);
+    assertThat(profile.name()).containsExactly(name);
+    assertThat(profile.about()).containsExactly(about);
+    assertThat(profile.aboutEmoji()).containsExactly(emoji);
+    assertThat(profile.avatar()).isEqualTo("profiles/validavatar");
+    assertThat(profile.phoneNumberSharing()).containsExactly(phoneNumberSharing);
+    assertThat(profile.baseProfileResponse().getUuid()).isEqualTo(new AciServiceIdentifier(AuthHelper.VALID_UUID_TWO));
+    assertThat(profile.baseProfileResponse().getBadges()).hasSize(1).element(0).has(new Condition<>(
         badge -> "Test Badge".equals(badge.getName()), "has badge with expected name"));
 
     verify(rateLimiter, times(1)).validate(AuthHelper.VALID_UUID);
@@ -982,7 +979,7 @@ class ProfileControllerTest {
           .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
           .get(VersionedProfileResponse.class);
 
-      assertThat(profile.getPaymentAddress()).containsExactly(paymentAddress);
+      assertThat(profile.paymentAddress()).containsExactly(paymentAddress);
     }
 
     when(profileAccount.getCurrentProfileVersion()).thenReturn(Optional.of(version));
@@ -994,7 +991,7 @@ class ProfileControllerTest {
           .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
           .get(VersionedProfileResponse.class);
 
-      assertThat(profile.getPaymentAddress()).containsExactly(paymentAddress);
+      assertThat(profile.paymentAddress()).containsExactly(paymentAddress);
     }
 
     when(profileAccount.getCurrentProfileVersion()).thenReturn(Optional.of(versionHex("someotherversion")));
@@ -1006,7 +1003,7 @@ class ProfileControllerTest {
           .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
           .get(VersionedProfileResponse.class);
 
-      assertThat(profile.getPaymentAddress()).isNull();
+      assertThat(profile.paymentAddress()).isNull();
     }
   }
 
@@ -1026,7 +1023,7 @@ class ProfileControllerTest {
         .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.VALID_UUID, AuthHelper.VALID_PASSWORD))
         .get(ExpiringProfileKeyCredentialProfileResponse.class);
 
-    assertThat(profile.getVersionedProfileResponse().getBaseProfileResponse().getUuid())
+    assertThat(profile.getVersionedProfileResponse().baseProfileResponse().getUuid())
         .isEqualTo(new AciServiceIdentifier(AuthHelper.VALID_UUID));
 
     assertThat(profile.getCredential()).isNull();
@@ -1245,7 +1242,7 @@ class ProfileControllerTest {
         .headers(authHeaders)
         .get(ExpiringProfileKeyCredentialProfileResponse.class);
 
-    assertThat(profile.getVersionedProfileResponse().getBaseProfileResponse().getUuid())
+    assertThat(profile.getVersionedProfileResponse().baseProfileResponse().getUuid())
         .isEqualTo(new AciServiceIdentifier(AuthHelper.VALID_UUID));
     assertThat(profile.getCredential()).isEqualTo(credentialResponse);
 
@@ -1376,9 +1373,9 @@ class ProfileControllerTest {
             .equals(expectedIdentityKeys.get(element.uuid())),
             "is an expected UUID with the correct identity key");
 
-    final IdentityKey validAciIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-    final IdentityKey secondValidPniIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-    final IdentityKey invalidAciIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey validAciIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
+    final IdentityKey secondValidPniIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
+    final IdentityKey invalidAciIdentityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     try (final Response response = resources.getJerseyTest().target("/v1/profile/identity_check/batch").request()
         .post(Entity.json(new BatchIdentityCheckRequest(List.of(
@@ -1409,7 +1406,7 @@ class ProfileControllerTest {
     for (int i = 0; i < 900; i++) {
       largeElementList.add(
           new BatchIdentityCheckRequest.Element(new AciServiceIdentifier(UUID.randomUUID()),
-              convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey()))));
+              convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey()))));
     }
 
     try (final Response response = resources.getJerseyTest().target("/v1/profile/identity_check/batch").request()
@@ -1444,9 +1441,9 @@ class ProfileControllerTest {
                 { "uuid": "%s", "fingerprint": "%s" }
               ]
             }
-            """, AuthHelper.VALID_UUID, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey()))),
-        "PNI:" + AuthHelper.VALID_PNI_TWO, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey()))),
-        AuthHelper.INVALID_UUID, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey()))));
+            """, AuthHelper.VALID_UUID, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey()))),
+        "PNI:" + AuthHelper.VALID_PNI_TWO, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey()))),
+        AuthHelper.INVALID_UUID, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey()))));
 
     try (final Response response = resources.getJerseyTest().target("/v1/profile/identity_check/batch").request()
         .post(Entity.entity(json, "application/json"))) {
@@ -1505,7 +1502,7 @@ class ProfileControllerTest {
                     { "uuid": null, "fingerprint": "%s" }
                   ]
                 }
-                """, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey())))),
+                """, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey())))),
             422),
         Arguments.of( // a blank string is invalid
             String.format("""
@@ -1514,7 +1511,7 @@ class ProfileControllerTest {
                     { "uuid": " ", "fingerprint": "%s" }
                   ]
                 }
-                """, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(Curve.generateKeyPair().getPublicKey())))),
+                """, Base64.getEncoder().encodeToString(convertKeyToFingerprint(new IdentityKey(ECKeyPair.generate().getPublicKey())))),
             400)
     );
   }

@@ -21,12 +21,12 @@ import io.dropwizard.core.server.DefaultServerFactory;
 import io.dropwizard.core.setup.Bootstrap;
 import io.dropwizard.core.setup.Environment;
 import io.dropwizard.jetty.HttpsConnectorFactory;
+import io.dropwizard.lifecycle.setup.LifecycleEnvironment;
 import io.grpc.ServerBuilder;
 import io.lettuce.core.metrics.MicrometerCommandLatencyRecorder;
 import io.lettuce.core.metrics.MicrometerOptions;
 import io.lettuce.core.resource.ClientResources;
 import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.grpc.MetricCollectingServerInterceptor;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import io.netty.channel.local.LocalAddress;
 import io.netty.channel.socket.nio.NioDatagramChannel;
@@ -48,7 +48,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -75,7 +74,6 @@ import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialPresentation;
 import org.signal.libsignal.zkgroup.receipts.ServerZkReceiptOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.whispersystems.textsecuregcm.attachments.DummyAttachmentGenerator;
 import org.whispersystems.textsecuregcm.attachments.GcsAttachmentGenerator;
 import org.whispersystems.textsecuregcm.attachments.TusAttachmentGenerator;
 import org.whispersystems.textsecuregcm.auth.AccountAuthenticator;
@@ -94,6 +92,7 @@ import org.whispersystems.textsecuregcm.backup.BackupManager;
 import org.whispersystems.textsecuregcm.backup.BackupsDb;
 import org.whispersystems.textsecuregcm.backup.Cdn3BackupCredentialGenerator;
 import org.whispersystems.textsecuregcm.backup.Cdn3RemoteStorageManager;
+import org.whispersystems.textsecuregcm.backup.SecureValueRecoveryBCredentialsGeneratorFactory;
 import org.whispersystems.textsecuregcm.badges.ConfiguredProfileBadgeConverter;
 import org.whispersystems.textsecuregcm.captcha.CaptchaChecker;
 import org.whispersystems.textsecuregcm.captcha.CaptchaClient;
@@ -124,6 +123,7 @@ import org.whispersystems.textsecuregcm.controllers.ProfileController;
 import org.whispersystems.textsecuregcm.controllers.ProvisioningController;
 import org.whispersystems.textsecuregcm.controllers.RegistrationController;
 import org.whispersystems.textsecuregcm.controllers.RemoteConfigController;
+import org.whispersystems.textsecuregcm.controllers.RemoteConfigControllerV1;
 import org.whispersystems.textsecuregcm.controllers.SecureStorageController;
 import org.whispersystems.textsecuregcm.controllers.SecureValueRecovery2Controller;
 import org.whispersystems.textsecuregcm.controllers.StickerController;
@@ -146,6 +146,7 @@ import org.whispersystems.textsecuregcm.grpc.ExternalServiceCredentialsAnonymous
 import org.whispersystems.textsecuregcm.grpc.ExternalServiceCredentialsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.KeysAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.KeysGrpcService;
+import org.whispersystems.textsecuregcm.grpc.MetricServerInterceptor;
 import org.whispersystems.textsecuregcm.grpc.PaymentsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ProfileAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ProfileGrpcService;
@@ -190,28 +191,22 @@ import org.whispersystems.textsecuregcm.metrics.ReportedMessageMetricsListener;
 import org.whispersystems.textsecuregcm.metrics.TlsCertificateExpirationUtil;
 import org.whispersystems.textsecuregcm.metrics.TrafficSource;
 import org.whispersystems.textsecuregcm.providers.MultiRecipientMessageProvider;
-import org.whispersystems.textsecuregcm.providers.RedisClusterHealthCheck;
 import org.whispersystems.textsecuregcm.push.APNSender;
-import org.whispersystems.textsecuregcm.push.DummySender;
 import org.whispersystems.textsecuregcm.push.FcmSender;
 import org.whispersystems.textsecuregcm.push.MessageSender;
 import org.whispersystems.textsecuregcm.push.ProvisioningManager;
 import org.whispersystems.textsecuregcm.push.PushNotificationManager;
 import org.whispersystems.textsecuregcm.push.PushNotificationScheduler;
 import org.whispersystems.textsecuregcm.push.ReceiptSender;
-import org.whispersystems.textsecuregcm.push.WebSocketConnectionEventManager;
+import org.whispersystems.textsecuregcm.push.RedisMessageAvailabilityManager;
 import org.whispersystems.textsecuregcm.redis.ConnectionEventLogger;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.registration.RegistrationServiceClient;
 import org.whispersystems.textsecuregcm.s3.PolicySigner;
 import org.whispersystems.textsecuregcm.s3.PostPolicyGenerator;
-import org.whispersystems.textsecuregcm.securestorage.InsecureStorageClient;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securestorage.StorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.InsecureValueRecovery2Client;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
-import org.whispersystems.textsecuregcm.securevaluerecovery.ValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.spam.ChallengeConstraintChecker;
 import org.whispersystems.textsecuregcm.spam.RegistrationFraudChecker;
 import org.whispersystems.textsecuregcm.spam.RegistrationRecoveryChecker;
@@ -262,7 +257,9 @@ import org.whispersystems.textsecuregcm.subscriptions.BraintreeManager;
 import org.whispersystems.textsecuregcm.subscriptions.GooglePlayBillingManager;
 import org.whispersystems.textsecuregcm.subscriptions.StripeManager;
 import org.whispersystems.textsecuregcm.util.BufferingInterceptor;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.ManagedAwsCrt;
+import org.whispersystems.textsecuregcm.util.ManagedExecutors;
 import org.whispersystems.textsecuregcm.util.SystemMapper;
 import org.whispersystems.textsecuregcm.util.UsernameHashZkProofVerifier;
 import org.whispersystems.textsecuregcm.util.VirtualExecutorServiceProvider;
@@ -286,6 +283,7 @@ import org.whispersystems.textsecuregcm.workers.RemoveExpiredAccountsCommand;
 import org.whispersystems.textsecuregcm.workers.RemoveExpiredBackupsCommand;
 import org.whispersystems.textsecuregcm.workers.RemoveExpiredLinkedDevicesCommand;
 import org.whispersystems.textsecuregcm.workers.RemoveExpiredUsernameHoldsCommand;
+import org.whispersystems.textsecuregcm.workers.RemoveOrphanedPreKeyPagesCommand;
 import org.whispersystems.textsecuregcm.workers.ScheduledApnPushNotificationSenderServiceCommand;
 import org.whispersystems.textsecuregcm.workers.ServerVersionCommand;
 import org.whispersystems.textsecuregcm.workers.SetRequestLoggingEnabledTask;
@@ -339,6 +337,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     bootstrap.addCommand(new RemoveExpiredAccountsCommand(Clock.systemUTC()));
     bootstrap.addCommand(new RemoveExpiredUsernameHoldsCommand(Clock.systemUTC()));
     bootstrap.addCommand(new RemoveExpiredBackupsCommand(Clock.systemUTC()));
+    bootstrap.addCommand(new RemoveOrphanedPreKeyPagesCommand(Clock.systemUTC()));
     bootstrap.addCommand(new BackupMetricsCommand(Clock.systemUTC()));
     bootstrap.addCommand(new BackupUsageRecalculationCommand());
     bootstrap.addCommand(new RemoveExpiredLinkedDevicesCommand());
@@ -365,8 +364,16 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     UncaughtExceptionHandler.register();
 
-    ScheduledExecutorService dynamicConfigurationExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "dynamicConfiguration-%d")).threads(1).build();
+    config.getCircuitBreakerConfigurations().forEach((name, configuration) ->
+        ResilienceUtil.getCircuitBreakerRegistry().addConfiguration(name, configuration.toCircuitBreakerConfig()));
+
+    config.getRetryConfigurations().forEach((name, configuration) ->
+        ResilienceUtil.getRetryRegistry().addConfiguration(name, configuration.toRetryConfigBuilder().build()));
+
+    ResilienceUtil.setGeneralRedisRetryConfiguration(config.getGeneralRedisRetryConfiguration());
+
+    ScheduledExecutorService dynamicConfigurationExecutor = ScheduledExecutorServiceBuilder.of(environment, "dynamicConfiguration")
+        .threads(1).build();
 
     DynamicConfigurationManager<DynamicConfiguration> dynamicConfigurationManager =
         new DynamicConfigurationManager<>(
@@ -374,6 +381,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     dynamicConfigurationManager.start();
 
     MetricsUtil.configureRegistries(config, environment, dynamicConfigurationManager);
+
+    ExperimentEnrollmentManager experimentEnrollmentManager = new ExperimentEnrollmentManager(dynamicConfigurationManager);
 
     if (config.getServerFactory() instanceof DefaultServerFactory defaultServerFactory) {
       defaultServerFactory.getApplicationConnectors()
@@ -396,8 +405,10 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     environment.lifecycle().manage(new ManagedAwsCrt());
 
-    final ExecutorService awsSdkMetricsExecutor = environment.lifecycle()
-        .virtualExecutorService(name(getClass(), "awsSdkMetrics-%d"));
+    final ExecutorService awsSdkMetricsExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "awsSdkMetrics",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
 
     final DynamoDbAsyncClient dynamoDbAsyncClient = config.getDynamoDbClientConfiguration()
         .buildAsyncClient(awsCredentialsProvider, new MicrometerAwsSdkMetricPublisher(awsSdkMetricsExecutor, "dynamoDbAsync"));
@@ -409,13 +420,13 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     final S3AsyncClient asyncCdnS3Client = S3AsyncClient.builder()
         .credentialsProvider(cdnCredentialsProvider)
         .region(Region.of(config.getCdnConfiguration().region()))
+        .endpointOverride(config.getCdnConfiguration().endpointOverride())
         .build();
 
     BlockingQueue<Runnable> messageDeletionQueue = new LinkedBlockingQueue<>();
     Metrics.gaugeCollectionSize(name(getClass(), "messageDeletionQueueSize"), Collections.emptyList(),
         messageDeletionQueue);
-    ExecutorService messageDeletionAsyncExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "messageDeletionAsyncExecutor-%d"))
+    ExecutorService messageDeletionAsyncExecutor = ExecutorServiceBuilder.of(environment, "messageDeletionAsyncExecutor")
         .minThreads(2)
         .maxThreads(2)
         .allowCoreThreadTimeOut(true)
@@ -441,6 +452,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     S3AsyncClient asyncKeysS3Client = S3AsyncClient.builder()
         .credentialsProvider(awsCredentialsProvider)
         .region(Region.of(config.getPagedSingleUseKEMPreKeyStore().region()))
+        .endpointOverride(config.getPagedSingleUseKEMPreKeyStore().endpointOverride())
         .build();
     KeysManager keysManager = new KeysManager(
         new SingleUseECPreKeyStore(dynamoDbAsyncClient, config.getDynamoDbTables().getEcKeys().getTableName()),
@@ -455,7 +467,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     MessagesDynamoDb messagesDynamoDb = new MessagesDynamoDb(dynamoDbClient, dynamoDbAsyncClient,
         config.getDynamoDbTables().getMessages().getTableName(),
         config.getDynamoDbTables().getMessages().getExpiration(),
-        messageDeletionAsyncExecutor);
+        messageDeletionAsyncExecutor, experimentEnrollmentManager);
     RemoteConfigs remoteConfigs = new RemoteConfigs(dynamoDbClient,
         config.getDynamoDbTables().getRemoteConfig().getTableName());
     PushChallengeDynamoDb pushChallengeDynamoDb = new PushChallengeDynamoDb(dynamoDbClient,
@@ -501,98 +513,88 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     Metrics.gaugeCollectionSize(MetricsUtil.name(getClass(), "messageDeliveryQueue"), Collections.emptyList(),
         messageDeliveryQueue);
 
-    ScheduledExecutorService recurringJobExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "recurringJob-%d")).threads(6).build();
-    ScheduledExecutorService websocketScheduledExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "websocket-%d")).threads(8).build();
-    ExecutorService apnSenderExecutor = environment.lifecycle().executorService(name(getClass(), "apnSender-%d"))
+    ScheduledExecutorService recurringJobExecutor = ScheduledExecutorServiceBuilder.of(environment, "recurringJob").threads(6).build();
+    ExecutorService apnSenderExecutor = ExecutorServiceBuilder.of(environment, "apnSender")
         .maxThreads(1).minThreads(1).build();
-    ExecutorService fcmSenderExecutor = environment.lifecycle().executorService(name(getClass(), "fcmSender-%d"))
+    ExecutorService fcmSenderExecutor = ExecutorServiceBuilder.of(environment, "fcmSender")
         .maxThreads(32).minThreads(32).workQueue(fcmSenderQueue).build();
-    ExecutorService secureValueRecovery2ServiceExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "secureValueRecoveryService2-%d")).maxThreads(1).minThreads(1).build();
-    ExecutorService storageServiceExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "storageService-%d")).maxThreads(1).minThreads(1).build();
-    ExecutorService virtualThreadEventLoggerExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "virtualThreadEventLogger-%d")).minThreads(1).maxThreads(1).build();
-    ExecutorService asyncOperationQueueingExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "asyncOperationQueueing-%d")).minThreads(1).maxThreads(1).build();
-    ScheduledExecutorService secureValueRecoveryServiceRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "secureValueRecoveryServiceRetry-%d")).threads(1).build();
-    ScheduledExecutorService storageServiceRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "storageServiceRetry-%d")).threads(1).build();
-    ScheduledExecutorService remoteStorageRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "remoteStorageRetry-%d")).threads(1).build();
-    ScheduledExecutorService registrationIdentityTokenRefreshExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "registrationIdentityTokenRefresh-%d")).threads(1).build();
+    ExecutorService secureValueRecoveryServiceExecutor = ExecutorServiceBuilder.of(environment, "secureValueRecoveryService")
+        .maxThreads(1).minThreads(1).build();
+    ExecutorService storageServiceExecutor = ExecutorServiceBuilder.of(environment, "storageService")
+        .maxThreads(1).minThreads(1).build();
+    ExecutorService virtualThreadEventLoggerExecutor = ExecutorServiceBuilder.of(environment, "virtualThreadEventLogger")
+        .minThreads(1).maxThreads(1).build();
+    ExecutorService asyncOperationQueueingExecutor = ExecutorServiceBuilder.of(environment, "asyncOperationQueueing")
+        .minThreads(1).maxThreads(1).build();
+
+    final ScheduledExecutorService retryExecutor = ScheduledExecutorServiceBuilder.of(environment, "retry")
+        .threads(16).build();
+    final ScheduledExecutorService registrationIdentityTokenRefreshExecutor =
+      ScheduledExecutorServiceBuilder.of(environment, "registrationIdentityTokenRefresh").threads(1).build();
 
     Scheduler messageDeliveryScheduler = Schedulers.fromExecutorService(
-        ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
-            environment.lifecycle().executorService(name(getClass(), "messageDelivery-%d"))
-                .minThreads(20)
-                .maxThreads(20)
-                .workQueue(messageDeliveryQueue)
-                .build(),
-            MetricsUtil.name(getClass(), "messageDeliveryExecutor"), MetricsUtil.PREFIX),
+        ExecutorServiceBuilder.of(environment, "messageDelivery")
+            .minThreads(20)
+            .maxThreads(20)
+            .workQueue(messageDeliveryQueue)
+            .build(),
         "messageDelivery");
 
     // TODO: generally speaking this is a DynamoDB I/O executor for the accounts table; we should eventually have a general executor for speaking to the accounts table, but most of the server is still synchronous so this isn't widely useful yet
-    ExecutorService batchIdentityCheckExecutor = environment.lifecycle().executorService(name(getClass(), "batchIdentityCheck-%d")).minThreads(32).maxThreads(32).build();
-    ExecutorService subscriptionProcessorExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "subscriptionProcessor-%d"))
+    ExecutorService batchIdentityCheckExecutor = ExecutorServiceBuilder.of(environment, "batchIdentityCheck").minThreads(32).maxThreads(32).build();
+    ExecutorService subscriptionProcessorExecutor = ExecutorServiceBuilder.of(environment, "subscriptionProcessor")
         .maxThreads(availableProcessors)  // mostly this is IO bound so tying to number of processors is tenuous at best
         .minThreads(availableProcessors)  // mostly this is IO bound so tying to number of processors is tenuous at best
         .allowCoreThreadTimeOut(true).
         build();
-    ExecutorService receiptSenderExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "receiptSender-%d"))
+    ExecutorService receiptSenderExecutor = ExecutorServiceBuilder.of(environment, "receiptSender")
         .maxThreads(2)
         .minThreads(2)
         .workQueue(receiptSenderQueue)
         .rejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy())
         .build();
-    ExecutorService registrationCallbackExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "registration-%d"))
+    ExecutorService registrationCallbackExecutor = ExecutorServiceBuilder.of(environment, "registration")
         .maxThreads(2)
         .minThreads(2)
         .build();
-    ExecutorService accountLockExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "accountLock-%d"))
+    ExecutorService accountLockExecutor = ExecutorServiceBuilder.of(environment, "accountLock")
         .minThreads(8)
         .maxThreads(8)
         .build();
     // unbounded executor (same as cachedThreadPool)
-    ExecutorService remoteStorageHttpExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "remoteStorage-%d"))
+    ExecutorService remoteStorageHttpExecutor = ExecutorServiceBuilder.of(environment, "remoteStorage")
         .minThreads(0)
         .maxThreads(Integer.MAX_VALUE)
         .workQueue(new SynchronousQueue<>())
         .keepAliveTime(io.dropwizard.util.Duration.seconds(60L))
         .build();
-    ExecutorService cloudflareTurnHttpExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "cloudflareTurn-%d"))
+    ExecutorService cloudflareTurnHttpExecutor = ExecutorServiceBuilder.of(environment, "cloudflareTurn")
         .maxThreads(2)
         .minThreads(2)
         .build();
-    ExecutorService googlePlayBillingExecutor = environment.lifecycle()
-        .virtualExecutorService(name(getClass(), "googlePlayBilling-%d"));
-    ExecutorService appleAppStoreExecutor = environment.lifecycle()
-        .virtualExecutorService(name(getClass(), "appleAppStore-%d"));
-    ExecutorService clientEventExecutor = environment.lifecycle()
-        .virtualExecutorService(name(getClass(), "clientEvent-%d"));
-    ExecutorService disconnectionRequestListenerExecutor = environment.lifecycle()
-        .virtualExecutorService(name(getClass(), "disconnectionRequest-%d"));
 
-    ScheduledExecutorService appleAppStoreRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "appleAppStoreRetry-%d")).threads(1).build();
-    ScheduledExecutorService subscriptionProcessorRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "subscriptionProcessorRetry-%d")).threads(1).build();
-    ScheduledExecutorService cloudflareTurnRetryExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "cloudflareTurnRetry-%d")).threads(1).build();
-    ScheduledExecutorService messagePollExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "messagePollExecutor-%d")).threads(1).build();
-    ScheduledExecutorService provisioningWebsocketTimeoutExecutor = environment.lifecycle()
-        .scheduledExecutorService(name(getClass(), "provisioningWebsocketTimeout-%d")).threads(1).build();
+    ExecutorService googlePlayBillingExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "googlePlayBilling",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
+    ExecutorService appleAppStoreExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "appleAppStore",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
+    ExecutorService clientEventExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "clientEvent",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
+    ExecutorService disconnectionRequestListenerExecutor = ManagedExecutors.newVirtualThreadPerTaskExecutor(
+        "disconnectionRequest",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor(),
+        environment);
+
+    ScheduledExecutorService appleAppStoreRetryExecutor = ScheduledExecutorServiceBuilder.of(environment, "appleAppStoreRetry").threads(1).build();
+    ScheduledExecutorService subscriptionProcessorRetryExecutor = ScheduledExecutorServiceBuilder.of(environment, "subscriptionProcessorRetry").threads(1).build();
+    ScheduledExecutorService cloudflareTurnRetryExecutor = ScheduledExecutorServiceBuilder.of(environment, "cloudflareTurnRetry").threads(1).build();
+    ScheduledExecutorService messagePollExecutor = ScheduledExecutorServiceBuilder.of(environment, "messagePollExecutor").threads(1).build();
+    ScheduledExecutorService provisioningWebsocketTimeoutExecutor = ScheduledExecutorServiceBuilder.of(environment, "provisioningWebsocketTimeout").threads(1).build();
 
     final ManagedNioEventLoopGroup dnsResolutionEventLoopGroup = new ManagedNioEventLoopGroup();
     final DnsNameResolver cloudflareDnsResolver = new DnsNameResolverBuilder(dnsResolutionEventLoopGroup.next())
@@ -609,67 +611,71 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     ExternalServiceCredentialsGenerator paymentsCredentialsGenerator = PaymentsController.credentialsGenerator(
         config.getPaymentsServiceConfiguration());
     ExternalServiceCredentialsGenerator svr2CredentialsGenerator = SecureValueRecovery2Controller.credentialsGenerator(
-            config.getSvr2Configuration());
+        config.getSvr2Configuration());
+    ExternalServiceCredentialsGenerator svrbCredentialsGenerator =
+        SecureValueRecoveryBCredentialsGeneratorFactory.svrbCredentialsGenerator(config.getSvrbConfiguration());
 
-    ExperimentEnrollmentManager experimentEnrollmentManager = new ExperimentEnrollmentManager(
-        dynamicConfigurationManager);
     RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager =
         new RegistrationRecoveryPasswordsManager(registrationRecoveryPasswords);
     UsernameHashZkProofVerifier usernameHashZkProofVerifier = new UsernameHashZkProofVerifier();
 
     RegistrationServiceClient registrationServiceClient = config.getRegistrationServiceConfiguration()
         .build(environment, registrationCallbackExecutor, registrationIdentityTokenRefreshExecutor);
-    // FLT(uoemai): Key transparency is disabled in the prototype.
-    // KeyTransparencyServiceClient keyTransparencyServiceClient = new KeyTransparencyServiceClient(
-    //     config.getKeyTransparencyServiceConfiguration().host(),
-    //     config.getKeyTransparencyServiceConfiguration().port(),
-    //     config.getKeyTransparencyServiceConfiguration().tlsCertificate(),
-    //     config.getKeyTransparencyServiceConfiguration().clientCertificate(),
-    //     config.getKeyTransparencyServiceConfiguration().clientPrivateKey().value());
-    // FLT(uoemai): Secure value recovery is disabled in the prototype.
-    // SecureValueRecovery2Client secureValueRecovery2Client = new SecureValueRecovery2Client(svr2CredentialsGenerator,
-    //     secureValueRecovery2ServiceExecutor, secureValueRecoveryServiceRetryExecutor, config.getSvr2Configuration());
-    ValueRecovery2Client insecureValueRecovery2Client = new InsecureValueRecovery2Client();
-    // FLT(uoemai): Secure storage is disabled in the prototype.
-    // SecureStorageClient secureStorageClient = new SecureStorageClient(storageCredentialsGenerator,
-    //     storageServiceExecutor, storageServiceRetryExecutor, config.getSecureStorageServiceConfiguration());
-    StorageClient insecureStorageClient = new InsecureStorageClient();
-    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient, disconnectionRequestListenerExecutor);
-    ProfilesManager profilesManager = new ProfilesManager(profiles, cacheCluster, asyncCdnS3Client, config.getCdnConfiguration().bucket());
+    KeyTransparencyServiceClient keyTransparencyServiceClient = new KeyTransparencyServiceClient(
+        config.getKeyTransparencyServiceConfiguration().host(),
+        config.getKeyTransparencyServiceConfiguration().port(),
+        config.getKeyTransparencyServiceConfiguration().tlsCertificate(),
+        config.getKeyTransparencyServiceConfiguration().clientCertificate(),
+        config.getKeyTransparencyServiceConfiguration().clientPrivateKey().value());
+    SecureValueRecoveryClient secureValueRecovery2Client = new SecureValueRecoveryClient(
+        svr2CredentialsGenerator,
+        secureValueRecoveryServiceExecutor,
+        retryExecutor,
+        config.getSvr2Configuration(),
+        () -> dynamicConfigurationManager.getConfiguration().getSvr2StatusCodesToIgnoreForAccountDeletion());
+    SecureValueRecoveryClient secureValueRecoveryBClient = new SecureValueRecoveryClient(
+        svrbCredentialsGenerator,
+        secureValueRecoveryServiceExecutor,
+        retryExecutor,
+        config.getSvrbConfiguration(),
+        () -> dynamicConfigurationManager.getConfiguration().getSvrbStatusCodesToIgnoreForAccountDeletion());
+    SecureStorageClient secureStorageClient = new SecureStorageClient(storageCredentialsGenerator,
+        storageServiceExecutor, retryExecutor, config.getSecureStorageServiceConfiguration());
+    final GrpcClientConnectionManager grpcClientConnectionManager = new GrpcClientConnectionManager();
+    DisconnectionRequestManager disconnectionRequestManager = new DisconnectionRequestManager(pubsubClient,
+        grpcClientConnectionManager, disconnectionRequestListenerExecutor, retryExecutor);
+    ProfilesManager profilesManager = new ProfilesManager(profiles, cacheCluster, retryExecutor, asyncCdnS3Client,
+        config.getCdnConfiguration().bucket());
     MessagesCache messagesCache = new MessagesCache(messagesCluster, messageDeliveryScheduler,
-        messageDeletionAsyncExecutor, clock);
+        messageDeletionAsyncExecutor, retryExecutor, clock, experimentEnrollmentManager);
     ClientReleaseManager clientReleaseManager = new ClientReleaseManager(clientReleases,
         recurringJobExecutor,
         config.getClientReleaseConfiguration().refreshInterval(),
         Clock.systemUTC());
     ReportMessageManager reportMessageManager = new ReportMessageManager(reportMessageDynamoDb, rateLimitersCluster,
         config.getReportMessageConfiguration().getCounterTtl());
-    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, reportMessageManager,
-        messageDeletionAsyncExecutor, Clock.systemUTC());
+    RedisMessageAvailabilityManager redisMessageAvailabilityManager =
+        new RedisMessageAvailabilityManager(messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
+    MessagesManager messagesManager = new MessagesManager(messagesDynamoDb, messagesCache, redisMessageAvailabilityManager,
+        reportMessageManager, messageDeletionAsyncExecutor, Clock.systemUTC());
     AccountLockManager accountLockManager = new AccountLockManager(dynamoDbClient,
         config.getDynamoDbTables().getDeletedAccountsLock().getTableName());
     ClientPublicKeysManager clientPublicKeysManager =
         new ClientPublicKeysManager(clientPublicKeys, accountLockManager, accountLockExecutor);
     AccountsManager accountsManager = new AccountsManager(accounts, phoneNumberIdentifiers, cacheCluster,
         pubsubClient, accountLockManager, keysManager, messagesManager, profilesManager,
-        insecureStorageClient, insecureValueRecovery2Client, disconnectionRequestManager,
+        secureStorageClient, secureValueRecovery2Client, disconnectionRequestManager,
         registrationRecoveryPasswordsManager, clientPublicKeysManager, accountLockExecutor, messagePollExecutor,
-        clock, config.getLinkDeviceSecretConfiguration().secret().value(), dynamicConfigurationManager);
+        retryExecutor, clock, config.getLinkDeviceSecretConfiguration().secret().value(), dynamicConfigurationManager);
     RemoteConfigsManager remoteConfigsManager = new RemoteConfigsManager(remoteConfigs);
-    // FLT(uoemai): Notification providers replaced by dummy logger during development.
-    // APNSender apnSender = new APNSender(apnSenderExecutor, config.getApnConfiguration());
-    // FcmSender fcmSender = new FcmSender(fcmSenderExecutor, config.getFcmConfiguration().credentials().value());
-    DummySender apnSender = new DummySender("APN");
-    DummySender fcmSender = new DummySender("FCM");
+    APNSender apnSender = new APNSender(apnSenderExecutor, config.getApnConfiguration());
+    FcmSender fcmSender = new FcmSender(fcmSenderExecutor, config.getFcmConfiguration().credentials().value());
     PushNotificationScheduler pushNotificationScheduler = new PushNotificationScheduler(pushSchedulerCluster,
-        apnSender, fcmSender, accountsManager, 0, 0);
+        apnSender, fcmSender, accountsManager, 0, 0, retryExecutor);
     PushNotificationManager pushNotificationManager =
         new PushNotificationManager(accountsManager, apnSender, fcmSender, pushNotificationScheduler);
-    WebSocketConnectionEventManager webSocketConnectionEventManager =
-        new WebSocketConnectionEventManager(accountsManager, pushNotificationManager, messagesCluster, clientEventExecutor, asyncOperationQueueingExecutor);
-    RateLimiters rateLimiters = RateLimiters.create(dynamicConfigurationManager, rateLimitersCluster);
-    // FLT(uoemai): Device provisioning is disabled in the prototype.
-    // ProvisioningManager provisioningManager = new ProvisioningManager(pubsubClient);
+    RateLimiters rateLimiters = RateLimiters.create(dynamicConfigurationManager, rateLimitersCluster, retryExecutor);
+    ProvisioningManager provisioningManager = new ProvisioningManager(pubsubClient);
     IssuedReceiptsManager issuedReceiptsManager = new IssuedReceiptsManager(
         config.getDynamoDbTables().getIssuedReceipts().getTableName(),
         config.getDynamoDbTables().getIssuedReceipts().getExpiration(),
@@ -687,8 +693,6 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     MessageDeliveryLoopMonitor messageDeliveryLoopMonitor =
         config.logMessageDeliveryLoops() ? new RedisMessageDeliveryLoopMonitor(rateLimitersCluster) : new NoopMessageDeliveryLoopMonitor();
 
-    disconnectionRequestManager.addListener(webSocketConnectionEventManager);
-
     final RegistrationLockVerificationManager registrationLockVerificationManager = new RegistrationLockVerificationManager(
         accountsManager, disconnectionRequestManager, svr2CredentialsGenerator, registrationRecoveryPasswordsManager,
         pushNotificationManager, rateLimiters);
@@ -699,7 +703,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     final AccountAuthenticator accountAuthenticator = new AccountAuthenticator(accountsManager);
 
-    final MessageSender messageSender = new MessageSender(messagesManager, pushNotificationManager, experimentEnrollmentManager);
+    final MessageSender messageSender = new MessageSender(messagesManager, pushNotificationManager);
     final ReceiptSender receiptSender = new ReceiptSender(accountsManager, messageSender, receiptSenderExecutor);
     final CloudflareTurnCredentialsManager cloudflareTurnCredentialsManager = new CloudflareTurnCredentialsManager(
         config.getTurnConfiguration().cloudflare().apiToken().value(),
@@ -710,9 +714,9 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         config.getTurnConfiguration().cloudflare().urlsWithIps(),
         config.getTurnConfiguration().cloudflare().hostname(),
         config.getTurnConfiguration().cloudflare().numHttpClients(),
-        config.getTurnConfiguration().cloudflare().circuitBreaker(),
+        config.getTurnConfiguration().cloudflare().circuitBreakerConfigurationName(),
         cloudflareTurnHttpExecutor,
-        config.getTurnConfiguration().cloudflare().retry(),
+        config.getTurnConfiguration().cloudflare().retryConfigurationName(),
         cloudflareTurnRetryExecutor,
         cloudflareDnsResolver
         );
@@ -727,66 +731,58 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     ChangeNumberManager changeNumberManager = new ChangeNumberManager(messageSender, accountsManager, Clock.systemUTC());
 
-    // FLT(uoemai): All forms of payment are disabled in the prototype.
-    // HttpClient currencyClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).connectTimeout(Duration.ofSeconds(10)).build();
-    // FixerClient fixerClient = config.getPaymentsServiceConfiguration().externalClients()
-    //     .buildFixerClient(currencyClient);
-    // CoinGeckoClient coinGeckoClient = config.getPaymentsServiceConfiguration().externalClients()
-    //     .buildCoinGeckoClient(currencyClient);
-    // CurrencyConversionManager currencyManager = new CurrencyConversionManager(fixerClient, coinGeckoClient,
-    //     cacheCluster, config.getPaymentsServiceConfiguration().paymentCurrencies(), recurringJobExecutor, Clock.systemUTC());
+    HttpClient currencyClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).connectTimeout(Duration.ofSeconds(10)).build();
+    FixerClient fixerClient = config.getPaymentsServiceConfiguration().externalClients()
+        .buildFixerClient(currencyClient);
+    CoinGeckoClient coinGeckoClient = config.getPaymentsServiceConfiguration().externalClients()
+        .buildCoinGeckoClient(currencyClient);
+    CurrencyConversionManager currencyManager = new CurrencyConversionManager(fixerClient, coinGeckoClient,
+        cacheCluster, config.getPaymentsServiceConfiguration().paymentCurrencies(), recurringJobExecutor, Clock.systemUTC());
     VirtualThreadPinEventMonitor virtualThreadPinEventMonitor = new VirtualThreadPinEventMonitor(
         virtualThreadEventLoggerExecutor,
-        () -> dynamicConfigurationManager.getConfiguration().getVirtualThreads().allowedPinEvents(),
         config.getVirtualThreadConfiguration().pinEventThreshold());
 
-    // FLT(uoemai): All forms of payment are disabled in the prototype.
-    //  StripeManager stripeManager = new StripeManager(config.getStripe().apiKey().value(), subscriptionProcessorExecutor,
-    //      config.getStripe().idempotencyKeyGenerator().value(), config.getStripe().boostDescription(), config.getStripe().supportedCurrenciesByPaymentMethod());
-    //  BraintreeManager braintreeManager = new BraintreeManager(config.getBraintree().merchantId(),
-    //      config.getBraintree().publicKey(), config.getBraintree().privateKey().value(),
-    //      config.getBraintree().environment(),
-    //      config.getBraintree().supportedCurrenciesByPaymentMethod(), config.getBraintree().merchantAccounts(),
-    //      config.getBraintree().graphqlUrl(), currencyManager, config.getBraintree().pubSubPublisher().build(),
-    //      config.getBraintree().circuitBreaker(), subscriptionProcessorExecutor,
-    //      subscriptionProcessorRetryExecutor);
-    //  GooglePlayBillingManager googlePlayBillingManager = new GooglePlayBillingManager(
-    //      new ByteArrayInputStream(config.getGooglePlayBilling().credentialsJson().value().getBytes(StandardCharsets.UTF_8)),
-    //      config.getGooglePlayBilling().packageName(),
-    //      config.getGooglePlayBilling().applicationName(),
-    //      config.getGooglePlayBilling().productIdToLevel(),
-    //      googlePlayBillingExecutor);
-    //  AppleAppStoreManager appleAppStoreManager = new AppleAppStoreManager(
-    //      config.getAppleAppStore().env(), config.getAppleAppStore().bundleId(), config.getAppleAppStore().appAppleId(),
-    //      config.getAppleAppStore().issuerId(), config.getAppleAppStore().keyId(),
-    //      config.getAppleAppStore().encodedKey().value(), config.getAppleAppStore().subscriptionGroupId(),
-    //      config.getAppleAppStore().productIdToLevel(),
-    //      config.getAppleAppStore().appleRootCerts(),
-    //      config.getAppleAppStore().retry(), appleAppStoreExecutor, appleAppStoreRetryExecutor);
+    StripeManager stripeManager = new StripeManager(config.getStripe().apiKey().value(), subscriptionProcessorExecutor,
+        config.getStripe().idempotencyKeyGenerator().value(), config.getStripe().boostDescription(), config.getStripe().supportedCurrenciesByPaymentMethod());
+    BraintreeManager braintreeManager = new BraintreeManager(config.getBraintree().merchantId(),
+        config.getBraintree().publicKey(), config.getBraintree().privateKey().value(),
+        config.getBraintree().environment(),
+        config.getBraintree().supportedCurrenciesByPaymentMethod(), config.getBraintree().merchantAccounts(),
+        config.getBraintree().graphqlUrl(), currencyManager, config.getBraintree().pubSubPublisher().build(),
+        config.getBraintree().circuitBreakerConfigurationName(), subscriptionProcessorExecutor,
+        subscriptionProcessorRetryExecutor);
+    GooglePlayBillingManager googlePlayBillingManager = new GooglePlayBillingManager(
+        new ByteArrayInputStream(config.getGooglePlayBilling().credentialsJson().value().getBytes(StandardCharsets.UTF_8)),
+        config.getGooglePlayBilling().packageName(),
+        config.getGooglePlayBilling().applicationName(),
+        config.getGooglePlayBilling().productIdToLevel(),
+        googlePlayBillingExecutor);
+    AppleAppStoreManager appleAppStoreManager = new AppleAppStoreManager(
+        config.getAppleAppStore().env(), config.getAppleAppStore().bundleId(), config.getAppleAppStore().appAppleId(),
+        config.getAppleAppStore().issuerId(), config.getAppleAppStore().keyId(),
+        config.getAppleAppStore().encodedKey().value(), config.getAppleAppStore().subscriptionGroupId(),
+        config.getAppleAppStore().productIdToLevel(),
+        config.getAppleAppStore().appleRootCerts(),
+        config.getAppleAppStore().retryConfigurationName(), appleAppStoreExecutor, appleAppStoreRetryExecutor);
 
     environment.lifecycle().manage(apnSender);
     environment.lifecycle().manage(pushNotificationScheduler);
-    // FLT(uoemai): Device provisioning is disabled in the prototype.
-    // environment.lifecycle().manage(provisioningManager);
+    environment.lifecycle().manage(provisioningManager);
     environment.lifecycle().manage(disconnectionRequestManager);
-    environment.lifecycle().manage(webSocketConnectionEventManager);
-    // FLT(uoemai): All forms of payment are disabled in the prototype.
-    // environment.lifecycle().manage(currencyManager);
+    environment.lifecycle().manage(redisMessageAvailabilityManager);
+    environment.lifecycle().manage(currencyManager);
     environment.lifecycle().manage(registrationServiceClient);
-    // FLT(uoemai): Key transparency is disabled in the prototype.
-    // environment.lifecycle().manage(keyTransparencyServiceClient);
+    environment.lifecycle().manage(keyTransparencyServiceClient);
     environment.lifecycle().manage(clientReleaseManager);
     environment.lifecycle().manage(virtualThreadPinEventMonitor);
     environment.lifecycle().manage(accountsManager);
 
-    // FLT(uoemai): Cloud uploads are disabled in the prototype.
-    // final GcsAttachmentGenerator gcsAttachmentGenerator = new GcsAttachmentGenerator(
-    //     config.getGcpAttachmentsConfiguration().domain(),
-    //     config.getGcpAttachmentsConfiguration().email(),
-    //     config.getGcpAttachmentsConfiguration().maxSizeInBytes(),
-    //     config.getGcpAttachmentsConfiguration().pathPrefix(),
-    //     config.getGcpAttachmentsConfiguration().rsaSigningKey().value());
-    final DummyAttachmentGenerator gcsAttachmentGenerator = new DummyAttachmentGenerator();
+    final GcsAttachmentGenerator gcsAttachmentGenerator = new GcsAttachmentGenerator(
+        config.getGcpAttachmentsConfiguration().domain(),
+        config.getGcpAttachmentsConfiguration().email(),
+        config.getGcpAttachmentsConfiguration().maxSizeInBytes(),
+        config.getGcpAttachmentsConfiguration().pathPrefix(),
+        config.getGcpAttachmentsConfiguration().rsaSigningKey().value());
 
     PostPolicyGenerator profileCdnPolicyGenerator = new PostPolicyGenerator(config.getCdnConfiguration().region(),
         config.getCdnConfiguration().bucket(), config.getCdnConfiguration().credentials().accessKeyId().value());
@@ -811,7 +807,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         clock);
     final Cdn3RemoteStorageManager cdn3RemoteStorageManager = new Cdn3RemoteStorageManager(
         remoteStorageHttpExecutor,
-        remoteStorageRetryExecutor,
+        retryExecutor,
         config.getCdn3StorageManagerConfiguration());
     BackupManager backupManager = new BackupManager(
         backupsDb,
@@ -820,6 +816,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         tusAttachmentGenerator,
         cdn3BackupCredentialGenerator,
         cdn3RemoteStorageManager,
+        svrbCredentialsGenerator,
+        secureValueRecoveryBClient,
         clock);
 
     final AppleDeviceChecks appleDeviceChecks = new AppleDeviceChecks(
@@ -836,15 +834,10 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         config.getAppleDeviceCheck().teamId(),
         config.getAppleDeviceCheck().bundleId());
 
-    final GrpcClientConnectionManager grpcClientConnectionManager = new GrpcClientConnectionManager();
-
-    disconnectionRequestManager.addListener(grpcClientConnectionManager);
-
     final ManagedDefaultEventLoopGroup localEventLoopGroup = new ManagedDefaultEventLoopGroup();
 
     final RemoteDeprecationFilter remoteDeprecationFilter = new RemoteDeprecationFilter(dynamicConfigurationManager);
-    final MetricCollectingServerInterceptor metricCollectingServerInterceptor =
-        new MetricCollectingServerInterceptor(Metrics.globalRegistry);
+    final MetricServerInterceptor metricServerInterceptor = new MetricServerInterceptor(Metrics.globalRegistry, clientReleaseManager);
 
     final ErrorMappingInterceptor errorMappingInterceptor = new ErrorMappingInterceptor();
     final RequestAttributesInterceptor requestAttributesInterceptor =
@@ -866,16 +859,14 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
                 new ExternalRequestFilter(config.getExternalRequestFilterConfiguration().permittedInternalRanges(),
                     config.getExternalRequestFilterConfiguration().grpcMethods()))
             .intercept(validatingInterceptor)
-            // TODO: specialize metrics with user-agent platform
-            .intercept(metricCollectingServerInterceptor)
+            .intercept(metricServerInterceptor)
             .intercept(errorMappingInterceptor)
             .intercept(remoteDeprecationFilter)
             .intercept(requestAttributesInterceptor)
             .intercept(new ProhibitAuthenticationInterceptor(grpcClientConnectionManager))
             .addService(new AccountsAnonymousGrpcService(accountsManager, rateLimiters))
             .addService(new KeysAnonymousGrpcService(accountsManager, keysManager, zkSecretParams, Clock.systemUTC()))
-            // FLT(uoemai): All forms of payment are disabled in the prototype.
-            // .addService(new PaymentsGrpcService(currencyManager))
+            .addService(new PaymentsGrpcService(currencyManager))
             .addService(ExternalServiceCredentialsAnonymousGrpcService.create(accountsManager, config))
             .addService(new ProfileAnonymousGrpcService(accountsManager, profilesManager, profileBadgeConverter, zkSecretParams));
       }
@@ -888,9 +879,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         // depends on the user-agent context so it has to come first here!
         // http://grpc.github.io/grpc-java/javadoc/io/grpc/ServerBuilder.html#intercept-io.grpc.ServerInterceptor-
         serverBuilder
-            // TODO: specialize metrics with user-agent platform
             .intercept(validatingInterceptor)
-            .intercept(metricCollectingServerInterceptor)
+            .intercept(metricServerInterceptor)
             .intercept(errorMappingInterceptor)
             .intercept(remoteDeprecationFilter)
             .intercept(requestAttributesInterceptor)
@@ -928,8 +918,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
       noiseWebSocketTlsPrivateKey = null;
     }
 
-    final ExecutorService noiseWebSocketDelegatedTaskExecutor = environment.lifecycle()
-        .executorService(name(getClass(), "noiseWebsocketDelegatedTask-%d"))
+    final ExecutorService noiseWebSocketDelegatedTaskExecutor = ExecutorServiceBuilder.of(environment, "noiseWebsocketDelegatedTask")
         .minThreads(8)
         .maxThreads(8)
         .allowCoreThreadTimeOut(false)
@@ -1006,7 +995,9 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     environment.jersey().register(new BufferingInterceptor());
     environment.jersey().register(new RestDeprecationFilter(dynamicConfigurationManager, experimentEnrollmentManager));
 
-    environment.jersey().register(new VirtualExecutorServiceProvider("managed-async-virtual-thread-"));
+    environment.jersey().register(new VirtualExecutorServiceProvider(
+        "managed-async-virtual-thread",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor()));
     environment.jersey().register(new RateLimitByIpFilter(rateLimiters));
     environment.jersey().register(new RequestStatisticsFilter(TrafficSource.HTTP));
     environment.jersey().register(MultiRecipientMessageProvider.class);
@@ -1017,19 +1008,22 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     ///
     WebSocketEnvironment<AuthenticatedDevice> webSocketEnvironment = new WebSocketEnvironment<>(environment,
         config.getWebSocketConfiguration(), Duration.ofMillis(90000));
-    webSocketEnvironment.jersey().register(new VirtualExecutorServiceProvider("managed-async-websocket-virtual-thread-"));
+    webSocketEnvironment.jersey().register(new VirtualExecutorServiceProvider(
+        "managed-async-websocket-virtual-thread",
+        config.getVirtualThreadConfiguration().maxConcurrentThreadsPerExecutor()));
     webSocketEnvironment.setAuthenticator(new WebSocketAccountAuthenticator(accountAuthenticator));
     webSocketEnvironment.setAuthenticatedWebSocketUpgradeFilter(new IdlePrimaryDeviceAuthenticatedWebSocketUpgradeFilter(
         config.idlePrimaryDeviceReminderConfiguration().minIdleDuration(), Clock.systemUTC()));
     webSocketEnvironment.setConnectListener(
         new AuthenticatedConnectListener(accountsManager, receiptSender, messagesManager, messageMetrics, pushNotificationManager,
-            pushNotificationScheduler, webSocketConnectionEventManager, websocketScheduledExecutor,
-            messageDeliveryScheduler, clientReleaseManager, messageDeliveryLoopMonitor, experimentEnrollmentManager));
+            pushNotificationScheduler, disconnectionRequestManager,
+            messageDeliveryScheduler, clientReleaseManager, messageDeliveryLoopMonitor, experimentEnrollmentManager
+        ));
     webSocketEnvironment.jersey().register(new RateLimitByIpFilter(rateLimiters));
     webSocketEnvironment.jersey().register(new RequestStatisticsFilter(TrafficSource.WEBSOCKET));
     webSocketEnvironment.jersey().register(MultiRecipientMessageProvider.class);
     webSocketEnvironment.jersey().register(new MetricsApplicationEventListener(TrafficSource.WEBSOCKET, clientReleaseManager));
-    webSocketEnvironment.jersey().register(new KeepAliveController(webSocketConnectionEventManager));
+    webSocketEnvironment.jersey().register(new KeepAliveController(redisMessageAvailabilityManager));
     webSocketEnvironment.jersey().register(new TimestampResponseFilter());
 
     final List<SpamFilter> spamFilters = ServiceLoader.load(SpamFilter.class)
@@ -1126,22 +1120,20 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new DonationController(clock, zkReceiptOperations, redeemedReceiptsManager, accountsManager, config.getBadges(),
             ReceiptCredentialPresentation::new),
         new KeysController(rateLimiters, keysManager, accountsManager, zkSecretParams, Clock.systemUTC()),
-        // FLT(uoemai): Disable key transparency for the prototype.
-        // new KeyTransparencyController(keyTransparencyServiceClient),
+        new KeyTransparencyController(keyTransparencyServiceClient),
         new MessageController(rateLimiters, messageByteLimitCardinalityEstimator, messageSender, receiptSender,
             accountsManager, messagesManager, phoneNumberIdentifiers, pushNotificationManager, pushNotificationScheduler,
             reportMessageManager, messageDeliveryScheduler, clientReleaseManager,
             zkSecretParams, spamChecker, messageMetrics, messageDeliveryLoopMonitor,
             Clock.systemUTC()),
-        // FLT(uoemai): All forms of payment are disabled in the prototype.
-        // new PaymentsController(currencyManager, paymentsCredentialsGenerator),
+        new PaymentsController(currencyManager, paymentsCredentialsGenerator),
         new ProfileController(clock, rateLimiters, accountsManager, profilesManager, dynamicConfigurationManager,
             profileBadgeConverter, config.getBadges(), profileCdnPolicyGenerator, profileCdnPolicySigner,
             zkSecretParams, zkProfileOperations, batchIdentityCheckExecutor),
-        // FLT(uoemai): Device provisioning is disabled in the prototype.
-        // new ProvisioningController(rateLimiters, provisioningManager),
+        new ProvisioningController(rateLimiters, provisioningManager),
         new RegistrationController(accountsManager, phoneVerificationTokenManager, registrationLockVerificationManager,
             rateLimiters),
+        new RemoteConfigControllerV1(remoteConfigsManager, config.getRemoteConfigConfiguration().globalConfig(), clock),
         new RemoteConfigController(remoteConfigsManager, config.getRemoteConfigConfiguration().globalConfig(), clock),
         new SecureStorageController(storageCredentialsGenerator),
         new SecureValueRecovery2Controller(svr2CredentialsGenerator, accountsManager),
@@ -1153,17 +1145,16 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             phoneNumberIdentifiers, rateLimiters, accountsManager, registrationFraudChecker,
             dynamicConfigurationManager, clock)
     );
-    // FLT(uoemai): All forms of payment are disabled in the prototype.
-    // if (config.getSubscription() != null && config.getOneTimeDonations() != null) {
-    //   SubscriptionManager subscriptionManager = new SubscriptionManager(subscriptions,
-    //       List.of(stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager),
-    //       zkReceiptOperations, issuedReceiptsManager);
-    //   commonControllers.add(new SubscriptionController(clock, config.getSubscription(), config.getOneTimeDonations(),
-    //       subscriptionManager, stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager,
-    //       profileBadgeConverter, bankMandateTranslator));
-    //   commonControllers.add(new OneTimeDonationController(clock, config.getOneTimeDonations(), stripeManager, braintreeManager,
-    //       zkReceiptOperations, issuedReceiptsManager, oneTimeDonationsManager));
-    // }
+    if (config.getSubscription() != null && config.getOneTimeDonations() != null) {
+      SubscriptionManager subscriptionManager = new SubscriptionManager(subscriptions,
+          List.of(stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager),
+          zkReceiptOperations, issuedReceiptsManager);
+      commonControllers.add(new SubscriptionController(clock, config.getSubscription(), config.getOneTimeDonations(),
+          subscriptionManager, stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager,
+          profileBadgeConverter, bankMandateTranslator));
+      commonControllers.add(new OneTimeDonationController(clock, config.getOneTimeDonations(), stripeManager, braintreeManager,
+          zkReceiptOperations, issuedReceiptsManager, oneTimeDonationsManager));
+    }
 
     for (Object controller : commonControllers) {
       environment.jersey().register(controller);
@@ -1172,10 +1163,9 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     WebSocketEnvironment<AuthenticatedDevice> provisioningEnvironment = new WebSocketEnvironment<>(environment,
         webSocketEnvironment.getRequestLog(), Duration.ofMillis(60000));
-    // FLT(uoemai): Device provisioning is disabled in the prototype.
-    // provisioningEnvironment.setConnectListener(new ProvisioningConnectListener(provisioningManager, provisioningWebsocketTimeoutExecutor, Duration.ofSeconds(90)));
+    provisioningEnvironment.setConnectListener(new ProvisioningConnectListener(provisioningManager, provisioningWebsocketTimeoutExecutor, Duration.ofSeconds(90)));
     provisioningEnvironment.jersey().register(new MetricsApplicationEventListener(TrafficSource.WEBSOCKET, clientReleaseManager));
-    provisioningEnvironment.jersey().register(new KeepAliveController(webSocketConnectionEventManager));
+    provisioningEnvironment.jersey().register(new KeepAliveController(redisMessageAvailabilityManager));
     provisioningEnvironment.jersey().register(new TimestampResponseFilter());
 
     registerExceptionMappers(environment, webSocketEnvironment, provisioningEnvironment);
@@ -1204,9 +1194,6 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
 
     environment.admin().addTask(new SetRequestLoggingEnabledTask());
 
-    // healthcheck, admin port
-    environment.healthChecks().register("cacheCluster", new RedisClusterHealthCheck(cacheCluster));
-
     MetricsUtil.registerSystemResourceMetrics(environment);
   }
 
@@ -1234,6 +1221,42 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
       webSocketEnvironment.jersey().register(exceptionMapper);
       provisioningEnvironment.jersey().register(exceptionMapper);
     });
+  }
+
+  private static class ExecutorServiceBuilder extends io.dropwizard.lifecycle.setup.ExecutorServiceBuilder {
+    private final String baseName;
+
+    public ExecutorServiceBuilder(final LifecycleEnvironment environment, final String baseName) {
+      super(environment, name(WhisperServerService.class, baseName) + "-%d");
+      this.baseName = baseName;
+    }
+
+    @Override
+    public ExecutorService build() {
+      return ExecutorServiceMetrics.monitor(Metrics.globalRegistry, super.build(), baseName, MetricsUtil.PREFIX);
+    }
+
+    public static ExecutorServiceBuilder of(final Environment environment, final String name) {
+      return new ExecutorServiceBuilder(environment.lifecycle(), name);
+    }
+  }
+
+  private static class ScheduledExecutorServiceBuilder extends io.dropwizard.lifecycle.setup.ScheduledExecutorServiceBuilder {
+    private final String baseName;
+
+    public ScheduledExecutorServiceBuilder(final LifecycleEnvironment environment, final String baseName) {
+      super(environment, name(WhisperServerService.class, baseName) + "-%d", false);
+      this.baseName = baseName;
+    }
+
+    @Override
+    public ScheduledExecutorService build() {
+      return ExecutorServiceMetrics.monitor(Metrics.globalRegistry, super.build(), baseName, MetricsUtil.PREFIX);
+    }
+
+    public static ScheduledExecutorServiceBuilder of(final Environment environment, final String name) {
+      return new ScheduledExecutorServiceBuilder(environment.lifecycle(), name);
+    }
   }
 
   public static void main(String[] args) throws Exception {

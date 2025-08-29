@@ -5,28 +5,28 @@
 
 package org.whispersystems.textsecuregcm.redis;
 
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
-
+import com.redis.testcontainers.RedisContainer;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.lettuce.core.FlushMode;
 import io.lettuce.core.RedisURI;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.time.Duration;
 import io.lettuce.core.resource.ClientResources;
-import org.junit.jupiter.api.extension.AfterAllCallback;
+import java.time.Duration;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import org.testcontainers.utility.DockerImageName;
 import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
-import org.whispersystems.textsecuregcm.configuration.RetryConfiguration;
-import redis.embedded.RedisServer;
-import redis.embedded.exceptions.EmbeddedRedisException;
+import org.whispersystems.textsecuregcm.util.TestcontainersImages;
 
-public class RedisServerExtension implements BeforeAllCallback, BeforeEachCallback, AfterAllCallback, AfterEachCallback {
+public class RedisServerExtension implements BeforeAllCallback, BeforeEachCallback, AfterEachCallback, ExtensionContext.Store.CloseableResource {
 
-  private static RedisServer redisServer;
-  private FaultTolerantRedisClient faultTolerantRedisClient;
+  private static RedisContainer redisContainer;
+
   private ClientResources redisClientResources;
+  private FaultTolerantRedisClient faultTolerantRedisClient;
+
+  private static final DockerImageName REDIS_IMAGE = DockerImageName.parse(TestcontainersImages.getRedis());
 
   public static class RedisServerExtensionBuilder {
 
@@ -43,69 +43,48 @@ public class RedisServerExtension implements BeforeAllCallback, BeforeEachCallba
   }
 
   @Override
-  public void beforeAll(final ExtensionContext context) throws Exception {
-    assumeFalse(System.getProperty("os.name").equalsIgnoreCase("windows"));
-
-    redisServer = RedisServer.builder()
-        .setting("appendonly no")
-        .setting("save \"\"")
-        .setting("dir " + System.getProperty("java.io.tmpdir"))
-        .port(getAvailablePort())
-        .build();
-
-    startWithRetries(3);
+  public void beforeAll(final ExtensionContext context) {
+    if (redisContainer == null) {
+      redisContainer = new RedisContainer(REDIS_IMAGE);
+      redisContainer.start();
+    }
   }
 
   public static RedisURI getRedisURI() {
-    return RedisURI.create("redis://127.0.0.1:%d".formatted(redisServer.ports().getFirst()));
+    return RedisURI.create(redisContainer.getRedisURI());
   }
 
   @Override
   public void beforeEach(final ExtensionContext context) {
-    redisClientResources = ClientResources.builder().build();
     final CircuitBreakerConfiguration circuitBreakerConfig = new CircuitBreakerConfiguration();
     circuitBreakerConfig.setWaitDurationInOpenState(Duration.ofMillis(500));
+
+    redisClientResources = ClientResources.builder().build();
+
     faultTolerantRedisClient = new FaultTolerantRedisClient("test-redis-client",
         redisClientResources.mutate(),
         getRedisURI(),
         Duration.ofSeconds(2),
-        circuitBreakerConfig,
-        new RetryConfiguration());
+        CircuitBreaker.of("test", circuitBreakerConfig.toCircuitBreakerConfig()));
 
-    faultTolerantRedisClient.useConnection(connection -> connection.sync().flushall());
+    faultTolerantRedisClient.useConnection(connection -> connection.sync().flushall(FlushMode.SYNC));
   }
 
   @Override
   public void afterEach(final ExtensionContext context) throws InterruptedException {
+    faultTolerantRedisClient.shutdown();
     redisClientResources.shutdown().await();
   }
 
   @Override
-  public void afterAll(final ExtensionContext context) {
-    if (redisServer != null) {
-      redisServer.stop();
+  public void close() throws Throwable {
+    if (redisContainer != null) {
+      redisContainer.stop();
+      redisContainer = null;
     }
   }
 
   public FaultTolerantRedisClient getRedisClient() {
     return faultTolerantRedisClient;
-  }
-
-  private static int getAvailablePort() throws IOException {
-    try (ServerSocket socket = new ServerSocket(0)) {
-      return socket.getLocalPort();
-    }
-  }
-
-  private void startWithRetries(int attemptsLeft) throws Exception {
-    try {
-      redisServer.start();
-    } catch (final EmbeddedRedisException e) {
-      if (attemptsLeft == 0) {
-        throw e;
-      }
-      Thread.sleep(500);
-      startWithRetries(attemptsLeft - 1);
-    }
   }
 }

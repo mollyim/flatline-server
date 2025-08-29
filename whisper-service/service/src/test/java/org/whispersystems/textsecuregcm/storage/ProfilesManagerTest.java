@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -25,9 +26,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.signal.libsignal.protocol.ServiceId;
 import org.signal.libsignal.zkgroup.InvalidInputException;
 import org.signal.libsignal.zkgroup.profiles.ProfileKey;
@@ -64,7 +68,7 @@ public class ProfilesManagerTest {
     profiles = mock(Profiles.class);
     s3Client = mock(S3AsyncClient.class);
 
-    profilesManager = new ProfilesManager(profiles, cacheCluster, s3Client, BUCKET);
+    profilesManager = new ProfilesManager(profiles, cacheCluster, mock(ScheduledExecutorService.class), s3Client, BUCKET);
   }
 
   @Test
@@ -241,8 +245,9 @@ public class ProfilesManagerTest {
     verifyNoMoreInteractions(profiles);
   }
 
-  @Test
-  public void testDeleteAll() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testDeleteAll(final boolean includeAvatar) {
     final UUID uuid = UUID.randomUUID();
 
     final String avatarOne = "avatar1";
@@ -253,17 +258,21 @@ public class ProfilesManagerTest {
         .thenReturn(CompletableFuture.completedFuture(null))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException("some error")));
 
-    profilesManager.deleteAll(uuid).join();
+    profilesManager.deleteAll(uuid, includeAvatar).join();
 
     verify(profiles).deleteAll(uuid);
     verify(asyncCommands).del(ProfilesManager.getCacheKey(uuid));
-    verify(s3Client).deleteObject(DeleteObjectRequest.builder()
-        .bucket(BUCKET)
-        .key(avatarOne)
-        .build());
-    verify(s3Client).deleteObject(DeleteObjectRequest.builder()
-        .bucket(BUCKET)
-        .key(avatarTwo)
-        .build());
+    if (includeAvatar) {
+      verify(s3Client).deleteObject(DeleteObjectRequest.builder()
+          .bucket(BUCKET)
+          .key(avatarOne)
+          .build());
+      verify(s3Client).deleteObject(DeleteObjectRequest.builder()
+          .bucket(BUCKET)
+          .key(avatarTwo)
+          .build());
+    } else {
+      verifyNoInteractions(s3Client);
+    }
   }
 }

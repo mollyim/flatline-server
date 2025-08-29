@@ -6,7 +6,6 @@ package org.whispersystems.textsecuregcm.controllers;
 
 import com.google.common.net.HttpHeaders;
 import io.dropwizard.auth.Auth;
-import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
@@ -49,12 +48,13 @@ import org.signal.libsignal.zkgroup.ServerSecretParams;
 import org.signal.libsignal.zkgroup.VerificationFailedException;
 import org.signal.libsignal.zkgroup.groupsend.GroupSendDerivedKeyPair;
 import org.signal.libsignal.zkgroup.groupsend.GroupSendFullToken;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.whispersystems.textsecuregcm.auth.Anonymous;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.GroupSendTokenHeader;
 import org.whispersystems.textsecuregcm.auth.OptionalAccess;
 import org.whispersystems.textsecuregcm.entities.CheckKeysRequest;
-import org.whispersystems.textsecuregcm.entities.ECPreKey;
 import org.whispersystems.textsecuregcm.entities.ECSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.KEMSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.PreKeyCount;
@@ -74,22 +74,22 @@ import org.whispersystems.textsecuregcm.storage.Device;
 import org.whispersystems.textsecuregcm.storage.KeysManager;
 import org.whispersystems.textsecuregcm.util.HeaderUtils;
 import org.whispersystems.textsecuregcm.util.Util;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 @Path("/v2/keys")
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Keys")
 public class KeysController {
 
+  private static final Logger log = LoggerFactory.getLogger(KeysController.class);
   private final RateLimiters rateLimiters;
   private final KeysManager keysManager;
   private final AccountsManager accounts;
   private final ServerSecretParams serverSecretParams;
   private final Clock clock;
 
-  private static final String GET_KEYS_COUNTER_NAME = MetricsUtil.name(KeysController.class, "getKeys");
   private static final String STORE_KEYS_COUNTER_NAME = MetricsUtil.name(KeysController.class, "storeKeys");
-  private static final String STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME =
-      MetricsUtil.name(KeysController.class, "storeKeyBundleSize");
   private static final String PRIMARY_DEVICE_TAG_NAME = "isPrimary";
   private static final String IDENTITY_TYPE_TAG_NAME = "identityType";
   private static final String KEY_TYPE_TAG_NAME = "keyType";
@@ -170,12 +170,6 @@ public class KeysController {
 
             Metrics.counter(STORE_KEYS_COUNTER_NAME, tags).increment();
 
-            DistributionSummary.builder(STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME)
-                .tags(tags)
-                .publishPercentileHistogram()
-                .register(Metrics.globalRegistry)
-                .record(setKeysRequest.preKeys().size());
-
             storeFutures.add(keysManager.storeEcOneTimePreKeys(identifier, device.getId(), setKeysRequest.preKeys()));
           }
 
@@ -190,12 +184,6 @@ public class KeysController {
           if (!setKeysRequest.pqPreKeys().isEmpty()) {
             final Tags tags = Tags.of(platformTag, primaryDeviceTag, identityTypeTag, Tag.of(KEY_TYPE_TAG_NAME, "kyber"));
             Metrics.counter(STORE_KEYS_COUNTER_NAME, tags).increment();
-
-            DistributionSummary.builder(STORE_KEY_BUNDLE_SIZE_DISTRIBUTION_NAME)
-                .tags(tags)
-                .publishPercentileHistogram()
-                .register(Metrics.globalRegistry)
-                .record(setKeysRequest.pqPreKeys().size());
 
             storeFutures.add(keysManager.storeKemOneTimePreKeys(identifier, device.getId(), setKeysRequest.pqPreKeys()));
           }
@@ -382,49 +370,22 @@ public class KeysController {
     final Account target = maybeTarget.orElseThrow(NotFoundException::new);
 
     if (account.isPresent()) {
-      rateLimiters.getPreKeysLimiter().validate(
-          account.get().getUuid() + "." + maybeAuthenticatedDevice.get().deviceId() + "__" + targetIdentifier.uuid()
-              + "." + deviceId);
+      rateLimiters.getPreKeysLimiter().validate(getPreKeysLimiterKey(account.get(), maybeAuthenticatedDevice.get(),
+          targetIdentifier, target, deviceId));
     }
 
     final List<Device> devices = parseDeviceId(deviceId, target);
-    final List<PreKeyResponseItem> responseItems = new ArrayList<>(devices.size());
 
-    final List<CompletableFuture<Void>> tasks = devices.stream().map(device -> {
-          final CompletableFuture<Optional<ECPreKey>> unsignedEcPreKeyFuture =
-              keysManager.takeEC(targetIdentifier.uuid(), device.getId());
-
-          final CompletableFuture<Optional<ECSignedPreKey>> signedEcPreKeyFuture =
-              keysManager.getEcSignedPreKey(targetIdentifier.uuid(), device.getId());
-
-          final CompletableFuture<Optional<KEMSignedPreKey>> pqPreKeyFuture =
-              keysManager.takePQ(targetIdentifier.uuid(), device.getId());
-
-          return CompletableFuture.allOf(unsignedEcPreKeyFuture, signedEcPreKeyFuture, pqPreKeyFuture)
-              .thenAccept(ignored -> {
-                final KEMSignedPreKey pqPreKey = pqPreKeyFuture.join().orElse(null);
-                final ECPreKey unsignedEcPreKey = unsignedEcPreKeyFuture.join().orElse(null);
-                final ECSignedPreKey signedEcPreKey = signedEcPreKeyFuture.join().orElse(null);
-
-                Metrics.counter(GET_KEYS_COUNTER_NAME, Tags.of(
-                        UserAgentTagUtil.getPlatformTag(userAgent),
-                        Tag.of(IDENTITY_TYPE_TAG_NAME, targetIdentifier.identityType().name()),
-                        Tag.of("oneTimeEcKeyAvailable", String.valueOf(unsignedEcPreKey != null)),
-                        Tag.of("pqKeyAvailable", String.valueOf(pqPreKey != null))))
-                    .increment();
-
-                if (signedEcPreKey != null || unsignedEcPreKey != null || pqPreKey != null) {
-                  final int registrationId = device.getRegistrationId(targetIdentifier.identityType());
-
-                  responseItems.add(
-                      new PreKeyResponseItem(device.getId(), registrationId, signedEcPreKey, unsignedEcPreKey,
-                          pqPreKey));
-                }
-              });
-        })
-        .toList();
-
-    CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
+    final List<PreKeyResponseItem> responseItems = Flux.fromIterable(devices).flatMap(device -> Mono
+            .fromCompletionStage(keysManager.takeDevicePreKeys(device.getId(), targetIdentifier, userAgent))
+            .flatMap(Mono::justOrEmpty)
+            .map(devicePreKeys -> new PreKeyResponseItem(
+                device.getId(), device.getRegistrationId(targetIdentifier.identityType()),
+                devicePreKeys.ecSignedPreKey(),
+                devicePreKeys.ecPreKey().orElse(null),
+                devicePreKeys.kemSignedPreKey())))
+        .collectList()
+        .block();
 
     final IdentityKey identityKey = target.getIdentityKey(targetIdentifier.identityType());
 
@@ -445,5 +406,25 @@ public class KeysController {
     } catch (NumberFormatException e) {
       throw new WebApplicationException(Response.status(422).build());
     }
+  }
+
+  private String getPreKeysLimiterKey(
+      final Account account,
+      final AuthenticatedDevice authenticatedDevice,
+      final ServiceIdentifier targetIdentifier,
+      final Account targetAccount,
+      final String targetDeviceId) {
+    final String targetRegistrationId = targetDeviceId.equals("*")
+        ? "*"
+        : String.valueOf(
+            parseDeviceId(targetDeviceId, targetAccount).getFirst().getRegistrationId(targetIdentifier.identityType()));
+
+    return String.format("%s.%s__%s.%s.%s",
+        account.getUuid(),
+        authenticatedDevice.deviceId(),
+        targetIdentifier.uuid(),
+        targetDeviceId,
+        targetRegistrationId
+    );
   }
 }

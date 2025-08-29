@@ -9,7 +9,6 @@ import io.grpc.CallCredentials;
 import io.grpc.ChannelCredentials;
 import io.grpc.Deadline;
 import io.grpc.Grpc;
-import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.TlsChannelCredentials;
 import java.io.ByteArrayInputStream;
@@ -73,11 +72,9 @@ public class RegistrationServiceClient implements Managed {
       final Executor callbackExecutor) throws IOException {
 
     try (final ByteArrayInputStream certificateInputStream = new ByteArrayInputStream(caCertificatePem.getBytes(StandardCharsets.UTF_8))) {
-      // FLT(uoemai): Use insecure channel for connecting to development registration service.
-      // final ChannelCredentials tlsChannelCredentials = TlsChannelCredentials.newBuilder()
-      //    .trustManager(certificateInputStream)
-      //    .build();
-      final ChannelCredentials tlsChannelCredentials = InsecureChannelCredentials.create();
+      final ChannelCredentials tlsChannelCredentials = TlsChannelCredentials.newBuilder()
+          .trustManager(certificateInputStream)
+          .build();
 
       this.channel = Grpc.newChannelBuilderForAddress(host, port, tlsChannelCredentials)
           .idleTimeout(1, TimeUnit.MINUTES)

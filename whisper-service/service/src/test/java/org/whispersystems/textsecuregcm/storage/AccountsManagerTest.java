@@ -14,9 +14,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyByte;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.notNull;
@@ -54,12 +55,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import javax.crypto.spec.SecretKeySpec;
@@ -74,7 +74,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.stubbing.Answer;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.auth.UnidentifiedAccessUtil;
@@ -84,14 +83,15 @@ import org.whispersystems.textsecuregcm.controllers.MismatchedDevicesException;
 import org.whispersystems.textsecuregcm.entities.AccountAttributes;
 import org.whispersystems.textsecuregcm.entities.ECSignedPreKey;
 import org.whispersystems.textsecuregcm.entities.KEMSignedPreKey;
+import org.whispersystems.textsecuregcm.entities.RemoteAttachment;
+import org.whispersystems.textsecuregcm.entities.TransferArchiveResult;
 import org.whispersystems.textsecuregcm.identity.AciServiceIdentifier;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.identity.PniServiceIdentifier;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryException;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.storage.AccountsManager.UsernameReservation;
 import org.whispersystems.textsecuregcm.tests.util.AccountsHelper;
 import org.whispersystems.textsecuregcm.tests.util.DevicesHelper;
@@ -133,7 +133,7 @@ class AccountsManagerTest {
   private RedisAdvancedClusterCommands<String, String> clusterCommands;
   private RedisAdvancedClusterAsyncCommands<String, String> asyncClusterCommands;
   private AccountsManager accountsManager;
-  private SecureValueRecovery2Client svr2Client;
+  private SecureValueRecoveryClient svr2Client;
   private DynamicConfiguration dynamicConfiguration;
 
   private static final Answer<?> ACCOUNT_UPDATE_ANSWER = (answer) -> {
@@ -192,10 +192,10 @@ class AccountsManagerTest {
     }).when(accounts).changeNumber(any(), anyString(), any(), any(), any());
 
     final SecureStorageClient storageClient = mock(SecureStorageClient.class);
-    when(storageClient.deleteStoredData(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(storageClient.deleteStoredData(any(UUID.class))).thenReturn(CompletableFuture.completedFuture(null));
 
-    svr2Client = mock(SecureValueRecovery2Client.class);
-    when(svr2Client.deleteBackups(any())).thenReturn(CompletableFuture.completedFuture(null));
+    svr2Client = mock(SecureValueRecoveryClient.class);
+    when(svr2Client.removeData(any(UUID.class))).thenReturn(CompletableFuture.completedFuture(null));
 
     final PhoneNumberIdentifiers phoneNumberIdentifiers = mock(PhoneNumberIdentifiers.class);
     phoneNumberIdentifiersByE164 = new HashMap<>();
@@ -209,16 +209,15 @@ class AccountsManagerTest {
         mock(DynamicConfigurationManager.class);
 
     when(dynamicConfigurationManager.getConfiguration()).thenReturn(dynamicConfiguration);
-    when(dynamicConfiguration.getSvrStatusCodesToIgnoreForAccountDeletion()).thenReturn(Collections.emptyList());
 
     final AccountLockManager accountLockManager = mock(AccountLockManager.class);
 
     doAnswer(invocation -> {
       final Callable<?> task = invocation.getArgument(1);
       return task.call();
-    }).when(accountLockManager).withLock(anyList(), any(), any());
+    }).when(accountLockManager).withLock(anySet(), any(), any());
 
-    when(accountLockManager.withLockAsync(anyList(), any(), any())).thenAnswer(invocation -> {
+    when(accountLockManager.withLockAsync(anySet(), any(), any())).thenAnswer(invocation -> {
       final Supplier<CompletableFuture<?>> taskSupplier = invocation.getArgument(1);
       return taskSupplier.get();
     });
@@ -230,7 +229,7 @@ class AccountsManagerTest {
 
     when(keysManager.deleteSingleUsePreKeys(any())).thenReturn(CompletableFuture.completedFuture(null));
     when(messagesManager.clear(any())).thenReturn(CompletableFuture.completedFuture(null));
-    when(profilesManager.deleteAll(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(profilesManager.deleteAll(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
     CLOCK = TestClock.now();
 
@@ -261,34 +260,10 @@ class AccountsManagerTest {
         clientPublicKeysManager,
         mock(Executor.class),
         mock(ScheduledExecutorService.class),
+        mock(ScheduledExecutorService.class),
         CLOCK,
         LINK_DEVICE_SECRET,
         dynamicConfigurationManager);
-  }
-
-  @ParameterizedTest
-  @MethodSource
-  void testDeleteWithSvr2ErrorStatusCodes(final String statusCode, final boolean expectError) throws InterruptedException {
-    when(svr2Client.deleteBackups(any())).thenReturn(
-        CompletableFuture.failedFuture(new SecureValueRecoveryException("Failed to delete backup", statusCode)));
-    when(dynamicConfiguration.getSvrStatusCodesToIgnoreForAccountDeletion()).thenReturn(List.of("500"));
-
-    final AccountAttributes attributes = new AccountAttributes(false, 1, 2, null, null, true, null);
-
-    final Account createdAccount = createAccount("+18005550123", attributes);
-
-    if (expectError) {
-      assertThrows(CompletionException.class, () -> accountsManager.delete(createdAccount, AccountsManager.DeletionReason.USER_REQUEST).toCompletableFuture().join());
-    } else {
-      assertDoesNotThrow(() -> accountsManager.delete(createdAccount, AccountsManager.DeletionReason.USER_REQUEST).toCompletableFuture().join());
-    }
-  }
-
-  private static Stream<Arguments> testDeleteWithSvr2ErrorStatusCodes() {
-    return Stream.of(
-        Arguments.of("500", false),
-        Arguments.of("429", true)
-    );
   }
 
   @Test
@@ -651,7 +626,7 @@ class AccountsManagerTest {
         .doAnswer(ACCOUNT_UPDATE_ANSWER)
         .when(accounts).update(any());
 
-    final IdentityKey identityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey identityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     account = accountsManager.update(account, a -> a.setIdentityKey(identityKey));
 
@@ -678,7 +653,7 @@ class AccountsManagerTest {
         .thenReturn(CompletableFuture.failedFuture(new ContestedOptimisticLockException()))
         .thenAnswer(ACCOUNT_UPDATE_ASYNC_ANSWER);
 
-    final IdentityKey identityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey identityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
 
     account = accountsManager.updateAsync(account, a -> a.setIdentityKey(identityKey)).join();
 
@@ -890,8 +865,9 @@ class AccountsManagerTest {
     verify(keysManager, times(2)).deleteSingleUsePreKeys(existingUuid);
     verify(keysManager, times(2)).deleteSingleUsePreKeys(phoneNumberIdentifiersByE164.get(e164));
     verify(messagesManager, times(2)).clear(existingUuid);
-    verify(profilesManager, times(2)).deleteAll(existingUuid);
-    verify(disconnectionRequestManager).requestDisconnection(existingUuid);
+    verify(profilesManager, times(2)).deleteAll(existingUuid, false);
+    verify(disconnectionRequestManager).requestDisconnection(argThat(account ->
+        account.getIdentifier(IdentityType.ACI).equals(existingUuid) && account != reregisteredAccount));
   }
 
   @Test
@@ -952,11 +928,12 @@ class AccountsManagerTest {
     final Account account = AccountsHelper.generateTestAccount(phoneNumber, List.of(generateTestDevice(CLOCK.millis())));
     final UUID aci = account.getIdentifier(IdentityType.ACI);
     final UUID pni = account.getIdentifier(IdentityType.PNI);
+    account.setIdentityKey(new IdentityKey(ECKeyPair.generate().getPublicKey()));
 
     final byte nextDeviceId = account.getNextDeviceId();
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final byte[] deviceNameCiphertext = "device-name".getBytes(StandardCharsets.UTF_8);
     final String password = "password";
@@ -1041,13 +1018,18 @@ class AccountsManagerTest {
     );
   }
 
-  @Test
-  void testChangePhoneNumber() throws InterruptedException, MismatchedDevicesException {
-    final String originalNumber = "+14152222222";
-    final String targetNumber = "+14153333333";
+  @ParameterizedTest
+  @CsvSource({
+      "+14152222222,+14153333333",
+
+      // Historically, "change number" behavior was different for "change to existing number," though that's no longer
+      // the case
+      "+14152222222,+14152222222"
+  })
+  void testChangePhoneNumber(final String originalNumber, final String targetNumber) throws InterruptedException, MismatchedDevicesException {
     final UUID uuid = UUID.randomUUID();
     final UUID originalPni = UUID.randomUUID();
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
     final ECSignedPreKey ecSignedPreKey = KeysHelper.signedECPreKey(1, pniIdentityKeyPair);
     final KEMSignedPreKey kemLastResortPreKey = KeysHelper.signedKEMPreKey(2, pniIdentityKeyPair);
@@ -1071,32 +1053,16 @@ class AccountsManagerTest {
   }
 
   @Test
-  void testChangePhoneNumberSameNumber() throws InterruptedException, MismatchedDevicesException {
-    final String number = "+14152222222";
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
-
-    Account account = AccountsHelper.generateTestAccount(number, UUID.randomUUID(), UUID.randomUUID(), List.of(DevicesHelper.createDevice(Device.PRIMARY_ID)), new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
-    phoneNumberIdentifiersByE164.put(number, account.getPhoneNumberIdentifier());
-    account = accountsManager.changeNumber(account,
-        number,
-        new IdentityKey(pniIdentityKeyPair.getPublicKey()),
-        Map.of(Device.PRIMARY_ID, KeysHelper.signedECPreKey(1, pniIdentityKeyPair)),
-        Map.of(Device.PRIMARY_ID, KeysHelper.signedKEMPreKey(2, pniIdentityKeyPair)),
-        Map.of(Device.PRIMARY_ID, 1));
-
-    assertEquals(number, account.getNumber());
-    verifyNoInteractions(keysManager);
-  }
-
-  @Test
   void testChangePhoneNumberDifferentNumberSamePni() throws InterruptedException, MismatchedDevicesException {
     final String originalNumber = "+22923456789";
     // the canonical form of numbers may change over time, so we use PNIs as stable identifiers
     final String newNumber = "+2290123456789";
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
+    final UUID phoneNumberIdentifier = UUID.randomUUID();
 
-    Account account = AccountsHelper.generateTestAccount(originalNumber, UUID.randomUUID(), UUID.randomUUID(),
-        new ArrayList<>(), new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
+    Account account = AccountsHelper.generateTestAccount(originalNumber, UUID.randomUUID(), phoneNumberIdentifier,
+        List.of(DevicesHelper.createDevice(Device.PRIMARY_ID)), new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
+
     phoneNumberIdentifiersByE164.put(originalNumber, account.getPhoneNumberIdentifier());
     phoneNumberIdentifiersByE164.put(newNumber, account.getPhoneNumberIdentifier());
     account = accountsManager.changeNumber(account,
@@ -1106,8 +1072,9 @@ class AccountsManagerTest {
         Map.of(Device.PRIMARY_ID, KeysHelper.signedKEMPreKey(2, pniIdentityKeyPair)),
         Map.of(Device.PRIMARY_ID, 1));
 
-    assertEquals(originalNumber, account.getNumber());
-    verifyNoInteractions(keysManager);
+    assertEquals(newNumber, account.getNumber());
+    assertEquals(phoneNumberIdentifier, account.getIdentifier(IdentityType.PNI));
+    verify(accounts, never()).delete(any(), any());
   }
 
   @Test
@@ -1118,7 +1085,7 @@ class AccountsManagerTest {
     final UUID uuid = UUID.randomUUID();
     final UUID originalPni = UUID.randomUUID();
     final UUID targetPni = UUID.randomUUID();
-    final ECKeyPair pniIdentityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair pniIdentityKeyPair = ECKeyPair.generate();
 
     final Account existingAccount = AccountsHelper.generateTestAccount(targetNumber, existingAccountUuid, targetPni, List.of(DevicesHelper.createDevice(Device.PRIMARY_ID)), new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
     when(accounts.getByE164(targetNumber)).thenReturn(Optional.of(existingAccount));
@@ -1158,7 +1125,7 @@ class AccountsManagerTest {
     final UUID originalPni = UUID.randomUUID();
     final UUID targetPni = UUID.randomUUID();
     final byte deviceId2 = 2;
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair identityKeyPair = ECKeyPair.generate();
     final Map<Byte, ECSignedPreKey> newSignedKeys = Map.of(
         Device.PRIMARY_ID, KeysHelper.signedECPreKey(1, identityKeyPair),
         deviceId2, KeysHelper.signedECPreKey(2, identityKeyPair));
@@ -1176,7 +1143,7 @@ class AccountsManagerTest {
         DevicesHelper.createDevice(deviceId2, 0L, 102));
     final Account account = AccountsHelper.generateTestAccount(originalNumber, uuid, originalPni, devices, new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
     final Account updatedAccount = accountsManager.changeNumber(
-        account, targetNumber, new IdentityKey(Curve.generateKeyPair().getPublicKey()), newSignedKeys, newSignedPqKeys, newRegistrationIds);
+        account, targetNumber, new IdentityKey(ECKeyPair.generate().getPublicKey()), newSignedKeys, newSignedPqKeys, newRegistrationIds);
 
     assertEquals(targetNumber, updatedAccount.getNumber());
 
@@ -1202,7 +1169,7 @@ class AccountsManagerTest {
     final UUID uuid = UUID.randomUUID();
     final UUID originalPni = UUID.randomUUID();
     final byte deviceId2 = 2;
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
+    final ECKeyPair identityKeyPair = ECKeyPair.generate();
     final Map<Byte, ECSignedPreKey> newSignedKeys = Map.of(
         Device.PRIMARY_ID, KeysHelper.signedECPreKey(1, identityKeyPair),
         deviceId2, KeysHelper.signedECPreKey(2, identityKeyPair));
@@ -1215,7 +1182,7 @@ class AccountsManagerTest {
     final Account account = AccountsHelper.generateTestAccount(originalNumber, uuid, originalPni, devices, new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
     assertThrows(MismatchedDevicesException.class,
         () -> accountsManager.changeNumber(
-            account, targetNumber, new IdentityKey(Curve.generateKeyPair().getPublicKey()), newSignedKeys, newSignedPqKeys, newRegistrationIds));
+            account, targetNumber, new IdentityKey(ECKeyPair.generate().getPublicKey()), newSignedKeys, newSignedPqKeys, newRegistrationIds));
 
     verifyNoInteractions(accounts);
     verifyNoInteractions(keysManager);
@@ -1230,101 +1197,6 @@ class AccountsManagerTest {
     final Account account = AccountsHelper.generateTestAccount(originalNumber, uuid, UUID.randomUUID(), new ArrayList<>(), new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
 
     assertThrows(AssertionError.class, () -> accountsManager.update(account, a -> a.setNumber(targetNumber, UUID.randomUUID())));
-  }
-
-  @Test
-  void testPniUpdate() throws MismatchedDevicesException {
-    final String number = "+14152222222";
-    final byte deviceId2 = 2;
-
-    List<Device> devices = List.of(DevicesHelper.createDevice(Device.PRIMARY_ID, 0L, 101),
-        DevicesHelper.createDevice(deviceId2, 0L, 102));
-
-    Account account = AccountsHelper.generateTestAccount(number, UUID.randomUUID(), UUID.randomUUID(), devices, new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
-    Map<Byte, ECSignedPreKey> newSignedKeys = Map.of(
-        Device.PRIMARY_ID, KeysHelper.signedECPreKey(1, identityKeyPair),
-        deviceId2, KeysHelper.signedECPreKey(2, identityKeyPair));
-    Map<Byte, KEMSignedPreKey> newSignedKemKeys = Map.of(
-        Device.PRIMARY_ID, KeysHelper.signedKEMPreKey(1, identityKeyPair),
-        deviceId2, KeysHelper.signedKEMPreKey(2, identityKeyPair));
-    Map<Byte, Integer> newRegistrationIds = Map.of(Device.PRIMARY_ID, 201, deviceId2, 202);
-
-    UUID oldUuid = account.getUuid();
-    UUID oldPni = account.getPhoneNumberIdentifier();
-
-    final IdentityKey pniIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-
-    when(keysManager.storeEcSignedPreKeys(any(), anyByte(), any())).thenReturn(CompletableFuture.completedFuture(null));
-
-    final Account updatedAccount = accountsManager.updatePniKeys(account, pniIdentityKey, newSignedKeys, newSignedKemKeys, newRegistrationIds);
-
-    // non-PNI stuff should not change
-    assertEquals(oldUuid, updatedAccount.getUuid());
-    assertEquals(number, updatedAccount.getNumber());
-    assertEquals(oldPni, updatedAccount.getPhoneNumberIdentifier());
-    assertNull(updatedAccount.getIdentityKey(IdentityType.ACI));
-    assertEquals(Map.of(Device.PRIMARY_ID, 101, deviceId2, 102),
-        updatedAccount.getDevices().stream().collect(Collectors.toMap(Device::getId, device -> device.getRegistrationId(IdentityType.ACI))));
-
-    // PNI stuff should
-    assertEquals(pniIdentityKey, updatedAccount.getIdentityKey(IdentityType.PNI));
-    assertEquals(newRegistrationIds,
-        updatedAccount.getDevices().stream().collect(Collectors.toMap(Device::getId, device -> device.getRegistrationId(IdentityType.PNI))));
-
-    verify(accounts).updateTransactionallyAsync(any(), any());
-
-    verify(keysManager).deleteSingleUsePreKeys(oldPni);
-    verify(keysManager).buildWriteItemForEcSignedPreKey(eq(oldPni), eq(Device.PRIMARY_ID), any());
-    verify(keysManager).buildWriteItemForEcSignedPreKey(eq(oldPni), eq(deviceId2), any());
-    verify(keysManager).buildWriteItemForLastResortKey(eq(oldPni), eq(deviceId2), any());
-  }
-
-  @Test
-  void testPniUpdate_incompleteKeys() {
-    final String number = "+14152222222";
-    final byte deviceId2 = 2;
-    final byte deviceId3 = 3;
-    List<Device> devices = List.of(DevicesHelper.createDevice(Device.PRIMARY_ID, 0L, 101),
-        DevicesHelper.createDevice(deviceId2, 0L, 102));
-    Account account = AccountsHelper.generateTestAccount(number, UUID.randomUUID(), UUID.randomUUID(), devices, new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
-    final Map<Byte, ECSignedPreKey> newSignedKeys = Map.of(
-        deviceId2, KeysHelper.signedECPreKey(1, identityKeyPair),
-        deviceId3, KeysHelper.signedECPreKey(2, identityKeyPair));
-    Map<Byte, Integer> newRegistrationIds = Map.of(Device.PRIMARY_ID, 201, deviceId2, 202);
-
-    final IdentityKey pniIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-
-    assertThrows(MismatchedDevicesException.class,
-        () -> accountsManager.updatePniKeys(account, pniIdentityKey, newSignedKeys, null, newRegistrationIds));
-
-    verifyNoInteractions(accounts);
-    verifyNoInteractions(keysManager);
-  }
-
-  @Test
-  void testPniPqUpdate_incompleteKeys() {
-    final String number = "+14152222222";
-    final byte deviceId2 = 2;
-    List<Device> devices = List.of(DevicesHelper.createDevice(Device.PRIMARY_ID, 0L, 101),
-        DevicesHelper.createDevice(deviceId2, 0L, 102));
-    Account account = AccountsHelper.generateTestAccount(number, UUID.randomUUID(), UUID.randomUUID(), devices, new byte[UnidentifiedAccessUtil.UNIDENTIFIED_ACCESS_KEY_LENGTH]);
-    final ECKeyPair identityKeyPair = Curve.generateKeyPair();
-    final Map<Byte, ECSignedPreKey> newSignedKeys = Map.of(
-        Device.PRIMARY_ID, KeysHelper.signedECPreKey(1, identityKeyPair),
-        deviceId2, KeysHelper.signedECPreKey(2, identityKeyPair));
-    final Map<Byte, KEMSignedPreKey> newSignedPqKeys = Map.of(
-        Device.PRIMARY_ID, KeysHelper.signedKEMPreKey(3, identityKeyPair));
-    Map<Byte, Integer> newRegistrationIds = Map.of(Device.PRIMARY_ID, 201, deviceId2, 202);
-
-    final IdentityKey pniIdentityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
-
-    assertThrows(MismatchedDevicesException.class,
-        () -> accountsManager.updatePniKeys(account, pniIdentityKey, newSignedKeys, newSignedPqKeys, newRegistrationIds));
-
-    verifyNoInteractions(accounts);
-    verifyNoInteractions(keysManager);
   }
 
   @Test
@@ -1529,8 +1401,8 @@ class AccountsManagerTest {
   }
 
   private Account createAccount(final String e164, final AccountAttributes accountAttributes) throws InterruptedException {
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     return accountsManager.create(e164,
         accountAttributes,
@@ -1623,6 +1495,61 @@ class AccountsManagerTest {
     } else {
       assertDoesNotThrow(validateCompleteDeviceListExecutable);
     }
+  }
+
+  @Test
+  void testFirstSuccessfulTransferArchiveCompletableFutureOneTimeout() {
+    // First future times out, second one completes successfully
+    final RemoteAttachment transferArchive = new RemoteAttachment(3, Base64.getUrlEncoder().encodeToString("test".getBytes(StandardCharsets.UTF_8)));
+
+    final CompletableFuture<Optional<TransferArchiveResult>> timeoutFuture = new CompletableFuture<>();
+    timeoutFuture.completeOnTimeout(Optional.empty(), 50, TimeUnit.MILLISECONDS);
+
+    final CompletableFuture<Optional<TransferArchiveResult>> successfulFuture = new CompletableFuture<>();
+
+    final CompletableFuture<Optional<TransferArchiveResult>> result =
+        AccountsManager.firstSuccessfulTransferArchiveFuture(List.of(timeoutFuture, successfulFuture));
+
+    CompletableFuture.delayedExecutor(100, TimeUnit.MILLISECONDS)
+        .execute(() -> successfulFuture.complete(Optional.of(transferArchive)));
+
+    final Optional<TransferArchiveResult> maybeTransferArchive = result.join();
+    assertTrue(maybeTransferArchive.isPresent());
+    assertEquals(transferArchive, maybeTransferArchive.get());
+  }
+
+  @Test
+  void testFirstSuccessfulTransferArchiveCompletableFutureBothTimeout() {
+    // Both futures time out
+    final CompletableFuture<Optional<TransferArchiveResult>> firstTimeoutFuture = new CompletableFuture<>();
+    firstTimeoutFuture.completeOnTimeout(Optional.empty(), 10, TimeUnit.MILLISECONDS);
+
+    final CompletableFuture<Optional<TransferArchiveResult>> secondTimeoutFuture = new CompletableFuture<>();
+    secondTimeoutFuture.completeOnTimeout(Optional.empty(), 10, TimeUnit.MILLISECONDS);
+
+    final CompletableFuture<Optional<TransferArchiveResult>> result =
+        AccountsManager.firstSuccessfulTransferArchiveFuture(List.of(firstTimeoutFuture, secondTimeoutFuture));
+
+    assertTrue(result.join().isEmpty());
+  }
+
+  @Test
+  void testFirstSuccessfulTransferArchiveCompletableFuture() {
+    // First future completes successfully, second one times out
+    final RemoteAttachment transferArchive = new RemoteAttachment(3, Base64.getUrlEncoder().encodeToString("test".getBytes(StandardCharsets.UTF_8)));
+
+    final CompletableFuture<Optional<TransferArchiveResult>> successfulFuture = new CompletableFuture<>();
+
+    final CompletableFuture<Optional<TransferArchiveResult>> timeoutFuture = new CompletableFuture<>();
+    timeoutFuture.completeOnTimeout(Optional.empty(), 50, TimeUnit.MILLISECONDS);
+
+    final CompletableFuture<Optional<TransferArchiveResult>> result =
+        AccountsManager.firstSuccessfulTransferArchiveFuture(List.of(successfulFuture, timeoutFuture));
+    successfulFuture.complete(Optional.of(transferArchive));
+
+    final Optional<TransferArchiveResult> maybeTransferArchive = result.join();
+    assertTrue(maybeTransferArchive.isPresent());
+    assertEquals(transferArchive, maybeTransferArchive.get());
   }
 
   private static List<Arguments> validateCompleteDeviceList() {

@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
@@ -44,7 +44,6 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
 import org.signal.libsignal.protocol.IdentityKey;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.auth.SaltedTokenHash;
@@ -54,7 +53,7 @@ import org.whispersystems.textsecuregcm.entities.AccountAttributes;
 import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClient;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.storage.DynamoDbExtensionSchema.Tables;
 import org.whispersystems.textsecuregcm.tests.util.DevicesHelper;
 import org.whispersystems.textsecuregcm.tests.util.JsonHelpers;
@@ -73,6 +72,7 @@ class AccountsManagerConcurrentModificationIntegrationTest {
       Tables.DELETED_ACCOUNTS,
       Tables.EC_KEYS,
       Tables.PQ_KEYS,
+      Tables.PAGED_PQ_KEYS,
       Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
 
@@ -111,9 +111,9 @@ class AccountsManagerConcurrentModificationIntegrationTest {
       doAnswer(invocation -> {
         final Callable<?> task = invocation.getArgument(1);
         return task.call();
-      }).when(accountLockManager).withLock(anyList(), any(), any());
+      }).when(accountLockManager).withLock(anySet(), any(), any());
 
-      when(accountLockManager.withLockAsync(anyList(), any(), any())).thenAnswer(invocation -> {
+      when(accountLockManager.withLockAsync(anySet(), any(), any())).thenAnswer(invocation -> {
         final Supplier<CompletableFuture<?>> taskSupplier = invocation.getArgument(1);
         taskSupplier.get().join();
 
@@ -134,11 +134,12 @@ class AccountsManagerConcurrentModificationIntegrationTest {
           mock(MessagesManager.class),
           mock(ProfilesManager.class),
           mock(SecureStorageClient.class),
-          mock(SecureValueRecovery2Client.class),
+          mock(SecureValueRecoveryClient.class),
           mock(DisconnectionRequestManager.class),
           mock(RegistrationRecoveryPasswordsManager.class),
           mock(ClientPublicKeysManager.class),
           mock(Executor.class),
+          mock(ScheduledExecutorService.class),
           mock(ScheduledExecutorService.class),
           mock(Clock.class),
           "link-device-secret".getBytes(StandardCharsets.UTF_8),
@@ -151,8 +152,8 @@ class AccountsManagerConcurrentModificationIntegrationTest {
   void testConcurrentUpdate() throws IOException, InterruptedException {
     final UUID uuid;
     {
-      final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-      final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+      final ECKeyPair aciKeyPair = ECKeyPair.generate();
+      final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
       final Account account = accountsManager.update(
           accountsManager.create("+14155551212",
@@ -186,7 +187,7 @@ class AccountsManagerConcurrentModificationIntegrationTest {
 
     final boolean discoverableByPhoneNumber = false;
     final String currentProfileVersion = "cpv";
-    final IdentityKey identityKey = new IdentityKey(Curve.generateKeyPair().getPublicKey());
+    final IdentityKey identityKey = new IdentityKey(ECKeyPair.generate().getPublicKey());
     final byte[] unidentifiedAccessKey = new byte[]{1};
     final String pin = "1234";
     final String registrationLock = "reglock";

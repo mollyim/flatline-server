@@ -48,7 +48,7 @@ public class AttachmentControllerV4 {
 
   public AttachmentControllerV4(
       final RateLimiters rateLimiters,
-      final AttachmentGenerator gcsAttachmentGenerator,
+      final GcsAttachmentGenerator gcsAttachmentGenerator,
       final TusAttachmentGenerator tusAttachmentGenerator,
       final ExperimentEnrollmentManager experimentEnrollmentManager) {
     this.rateLimiter = rateLimiters.getAttachmentLimiter();

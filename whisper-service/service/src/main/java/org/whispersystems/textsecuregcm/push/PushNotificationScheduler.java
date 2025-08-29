@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
@@ -34,6 +35,7 @@ import org.whispersystems.textsecuregcm.redis.FaultTolerantRedisClusterClient;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
+import org.whispersystems.textsecuregcm.util.ResilienceUtil;
 import org.whispersystems.textsecuregcm.util.Pair;
 import org.whispersystems.textsecuregcm.util.RedisClusterUtil;
 import org.whispersystems.textsecuregcm.util.Util;
@@ -51,6 +53,8 @@ public class PushNotificationScheduler implements Managed {
   @VisibleForTesting
   static final String NEXT_SLOT_TO_PROCESS_KEY = "pending_notification_next_slot";
 
+  private static final Duration EXCEPTION_PAUSE = Duration.ofSeconds(3);
+
   private static final String BACKGROUND_NOTIFICATION_SCHEDULED_COUNTER_NAME = name(PushNotificationScheduler.class, "backgroundNotification", "scheduled");
   private static final String BACKGROUND_NOTIFICATION_SENT_COUNTER_NAME = name(PushNotificationScheduler.class, "backgroundNotification", "sent");
 
@@ -59,10 +63,11 @@ public class PushNotificationScheduler implements Managed {
   private static final String TOKEN_TYPE_TAG = "tokenType";
   private static final String ACCEPTED_TAG = "accepted";
 
-  private final PushNotificationSender apnSender;
-  private final PushNotificationSender fcmSender;
+  private final APNSender apnSender;
+  private final FcmSender fcmSender;
   private final AccountsManager accountsManager;
   private final FaultTolerantRedisClusterClient pushSchedulingCluster;
+  private final ScheduledExecutorService retryExecutor;
   private final Clock clock;
 
   private final ClusterLuaScript scheduleBackgroundNotificationScript;
@@ -74,11 +79,11 @@ public class PushNotificationScheduler implements Managed {
 
   private final AtomicBoolean running = new AtomicBoolean(false);
 
+  private static final String RETRY_NAME = ResilienceUtil.name(PushNotificationScheduler.class);
+
   class NotificationWorker implements Runnable {
 
     private final int maxConcurrency;
-
-    private static final int PAGE_SIZE = 128;
 
     NotificationWorker(final int maxConcurrency) {
       this.maxConcurrency = maxConcurrency;
@@ -94,7 +99,12 @@ public class PushNotificationScheduler implements Managed {
             Util.sleep(1000);
           }
         } catch (Exception e) {
-          logger.warn("Exception while operating", e);
+          logger.warn("Exception while processing scheduled notifications", e);
+
+          try {
+            Thread.sleep(EXCEPTION_PAUSE);
+          } catch (final InterruptedException _) {
+          }
         }
       } while (running.get());
     }
@@ -145,11 +155,12 @@ public class PushNotificationScheduler implements Managed {
   }
 
   public PushNotificationScheduler(final FaultTolerantRedisClusterClient pushSchedulingCluster,
-      final PushNotificationSender apnSender,
-      final PushNotificationSender fcmSender,
+      final APNSender apnSender,
+      final FcmSender fcmSender,
       final AccountsManager accountsManager,
       final int dedicatedProcessWorkerThreadCount,
-      final int workerMaxConcurrency) throws IOException {
+      final int workerMaxConcurrency,
+      final ScheduledExecutorService retryExecutor) throws IOException {
 
     this(pushSchedulingCluster,
         apnSender,
@@ -157,17 +168,19 @@ public class PushNotificationScheduler implements Managed {
         accountsManager,
         Clock.systemUTC(),
         dedicatedProcessWorkerThreadCount,
-        workerMaxConcurrency);
+        workerMaxConcurrency,
+        retryExecutor);
   }
 
   @VisibleForTesting
   PushNotificationScheduler(final FaultTolerantRedisClusterClient pushSchedulingCluster,
-                            final PushNotificationSender apnSender,
-                            final PushNotificationSender fcmSender,
-                            final AccountsManager accountsManager,
-                            final Clock clock,
-                            final int dedicatedProcessThreadCount,
-                            final int workerMaxConcurrency) throws IOException {
+      final APNSender apnSender,
+      final FcmSender fcmSender,
+      final AccountsManager accountsManager,
+      final Clock clock,
+      final int dedicatedProcessThreadCount,
+      final int workerMaxConcurrency,
+      final ScheduledExecutorService retryExecutor) throws IOException {
 
     this.apnSender = apnSender;
     this.fcmSender = fcmSender;
@@ -179,6 +192,7 @@ public class PushNotificationScheduler implements Managed {
         "lua/apn/schedule_background_notification.lua", ScriptOutputType.VALUE);
 
     this.workerThreads = new Thread[dedicatedProcessThreadCount];
+    this.retryExecutor = retryExecutor;
 
     for (int i = 0; i < this.workerThreads.length; i++) {
       this.workerThreads[i] = new Thread(new NotificationWorker(workerMaxConcurrency), "PushNotificationScheduler-" + i);
@@ -220,13 +234,16 @@ public class PushNotificationScheduler implements Managed {
    * @return a future that completes once the notification has been scheduled
    */
   public CompletableFuture<Void> scheduleDelayedNotification(final Account account, final Device device, final Duration minDelay) {
-    return pushSchedulingCluster.withCluster(connection ->
-        connection.async().zadd(getDelayedNotificationQueueKey(account, device),
-            clock.instant().plus(minDelay).toEpochMilli(),
-            encodeAciAndDeviceId(account, device)))
-        .thenRun(() -> Metrics.counter(DELAYED_NOTIFICATION_SCHEDULED_COUNTER_NAME,
-                TOKEN_TYPE_TAG, getTokenType(device))
-            .increment())
+    final long deliveryTime = clock.instant().plus(minDelay).toEpochMilli();
+
+    return ResilienceUtil.getGeneralRedisRetry(RETRY_NAME)
+        .executeCompletionStage(retryExecutor, () -> pushSchedulingCluster.withCluster(connection ->
+                connection.async().zadd(getDelayedNotificationQueueKey(account, device),
+                    deliveryTime,
+                    encodeAciAndDeviceId(account, device)))
+            .thenRun(() -> Metrics.counter(DELAYED_NOTIFICATION_SCHEDULED_COUNTER_NAME,
+                    TOKEN_TYPE_TAG, getTokenType(device))
+                .increment()))
         .toCompletableFuture();
   }
 

@@ -6,11 +6,9 @@
 package org.whispersystems.textsecuregcm.redis;
 
 import io.github.resilience4j.core.IntervalFunction;
-import io.github.resilience4j.reactor.retry.RetryOperator;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.lettuce.core.ClientOptions;
-import io.lettuce.core.RedisCommandTimeoutException;
 import io.lettuce.core.RedisException;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.TimeoutOptions;
@@ -28,13 +26,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import org.reactivestreams.Publisher;
-import org.whispersystems.textsecuregcm.configuration.CircuitBreakerConfiguration;
+import javax.annotation.Nullable;
 import org.whispersystems.textsecuregcm.configuration.RedisClusterConfiguration;
-import org.whispersystems.textsecuregcm.configuration.RetryConfiguration;
-import org.whispersystems.textsecuregcm.util.CircuitBreakerUtil;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
@@ -53,25 +46,26 @@ public class FaultTolerantRedisClusterClient {
 
   private final List<StatefulRedisClusterPubSubConnection<?, ?>> pubSubConnections = new ArrayList<>();
 
-  private final Retry retry;
   private final Retry topologyChangedEventRetry;
 
 
-  public FaultTolerantRedisClusterClient(final String name, final RedisClusterConfiguration clusterConfiguration,
-                                         final ClientResources.Builder clientResourcesBuilder) {
+  public FaultTolerantRedisClusterClient(final String name,
+      final RedisClusterConfiguration clusterConfiguration,
+      final ClientResources.Builder clientResourcesBuilder) {
 
     this(name, clientResourcesBuilder,
         Collections.singleton(RedisUriUtil.createRedisUriWithTimeout(clusterConfiguration.getConfigurationUri(),
             clusterConfiguration.getTimeout())),
         clusterConfiguration.getTimeout(),
-        clusterConfiguration.getCircuitBreakerConfiguration(),
-        clusterConfiguration.getRetryConfiguration());
+        clusterConfiguration.getCircuitBreakerConfigurationName());
 
   }
 
-  FaultTolerantRedisClusterClient(String name, final ClientResources.Builder clientResourcesBuilder,
-                                  Iterable<RedisURI> redisUris, Duration commandTimeout, CircuitBreakerConfiguration circuitBreakerConfig,
-                                  RetryConfiguration retryConfiguration) {
+  FaultTolerantRedisClusterClient(final String name,
+      final ClientResources.Builder clientResourcesBuilder,
+      final Iterable<RedisURI> redisUris,
+      final Duration commandTimeout,
+      @Nullable final String circuitBreakerConfigurationName) {
 
     this.name = name;
 
@@ -88,8 +82,9 @@ public class FaultTolerantRedisClusterClient {
       redisUri.setLibraryVersion(null);
     });
 
-    final LettuceShardCircuitBreaker lettuceShardCircuitBreaker = new LettuceShardCircuitBreaker(name,
-        circuitBreakerConfig.toCircuitBreakerConfig(), Schedulers.newSingle("topology-changed-" + name, true));
+    final LettuceShardCircuitBreaker lettuceShardCircuitBreaker =
+        new LettuceShardCircuitBreaker(name, circuitBreakerConfigurationName);
+
     this.clusterClient = RedisClusterClient.create(
         clientResourcesBuilder.nettyCustomizer(lettuceShardCircuitBreaker).
             build(),
@@ -107,8 +102,6 @@ public class FaultTolerantRedisClusterClient {
         .publishOnScheduler(true)
         .build());
 
-    lettuceShardCircuitBreaker.setEventBus(clusterClient.getResources().eventBus());
-
     this.stringConnection = clusterClient.connect();
     this.binaryConnection = clusterClient.connect(ByteArrayCodec.INSTANCE);
 
@@ -116,8 +109,6 @@ public class FaultTolerantRedisClusterClient {
     clusterClient.getResources().eventBus().publish(
         new ClusterTopologyChangedEvent(Collections.emptyList(), clusterClient.getPartitions().getPartitions()));
 
-    this.retry = Retry.of(name + "-retry", retryConfiguration.toRetryConfigBuilder()
-        .retryOnException(exception -> exception instanceof RedisCommandTimeoutException).build());
     final RetryConfig topologyChangedEventRetryConfig = RetryConfig.custom()
         .maxAttempts(Integer.MAX_VALUE)
         .intervalFunction(
@@ -125,8 +116,6 @@ public class FaultTolerantRedisClusterClient {
         .build();
 
     this.topologyChangedEventRetry = Retry.of(name + "-topologyChangedRetry", topologyChangedEventRetryConfig);
-
-    CircuitBreakerUtil.registerMetrics(retry, FaultTolerantRedisClusterClient.class);
   }
 
   public void shutdown() {
@@ -160,15 +149,10 @@ public class FaultTolerantRedisClusterClient {
     return withConnection(binaryConnection, function);
   }
 
-  public <T> Publisher<T> withBinaryClusterReactive(
-      final Function<StatefulRedisClusterConnection<byte[], byte[]>, Publisher<T>> function) {
-    return withConnectionReactive(binaryConnection, function);
-  }
-
-  public <K, V> void useConnection(final StatefulRedisClusterConnection<K, V> connection,
+  private <K, V> void useConnection(final StatefulRedisClusterConnection<K, V> connection,
       final Consumer<StatefulRedisClusterConnection<K, V>> consumer) {
     try {
-      retry.executeRunnable(() -> consumer.accept(connection));
+      consumer.accept(connection);
     } catch (final Throwable t) {
       if (t instanceof RedisException) {
         throw (RedisException) t;
@@ -178,10 +162,10 @@ public class FaultTolerantRedisClusterClient {
     }
   }
 
-  public <T, K, V> T withConnection(final StatefulRedisClusterConnection<K, V> connection,
+  private <T, K, V> T withConnection(final StatefulRedisClusterConnection<K, V> connection,
       final Function<StatefulRedisClusterConnection<K, V>, T> function) {
     try {
-      return retry.executeCallable(() -> function.apply(connection));
+      return function.apply(connection);
     } catch (final Throwable t) {
       if (t instanceof RedisException) {
         throw (RedisException) t;
@@ -189,22 +173,6 @@ public class FaultTolerantRedisClusterClient {
         throw new RedisException(t);
       }
     }
-  }
-
-  public <T, K, V> Publisher<T> withConnectionReactive(
-      final StatefulRedisClusterConnection<K, V> connection,
-      final Function<StatefulRedisClusterConnection<K, V>, Publisher<T>> function) {
-
-    final Publisher<T> publisher = function.apply(connection);
-
-    if (publisher instanceof Mono<T> m) {
-      return m.transformDeferred(RetryOperator.of(retry));
-    }
-    if (publisher instanceof Flux<T> f) {
-      return f.transformDeferred(RetryOperator.of(retry));
-    }
-
-    return Flux.from(publisher).transformDeferred(RetryOperator.of(retry));
   }
 
   public FaultTolerantPubSubClusterConnection<String, String> createPubSubConnection() {

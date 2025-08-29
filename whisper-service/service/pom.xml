@@ -17,8 +17,6 @@
     <storekit.version>3.4.0</storekit.version>
     <webauthn4j.version>0.28.6.RELEASE</webauthn4j.version>
     <java-jwt.version>4.5.0</java-jwt.version>
-    <!-- FLT(uoemai): Default to storing container image locally. Use "build" to push to a registry. -->
-    <jib.goal>dockerBuild</jib.goal>
   </properties>
 
   <dependencies>
@@ -53,6 +51,13 @@
       <groupId>io.swagger.core.v3</groupId>
       <artifactId>swagger-jaxrs2-jakarta</artifactId>
       <version>${swagger.version}</version>
+      <exclusions>
+        <!-- conflicts with jackson-dataformat-yaml -->
+        <exclusion>
+          <groupId>org.yaml</groupId>
+          <artifactId>snakeyaml</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>jakarta.servlet</groupId>
@@ -320,6 +325,10 @@
       <artifactId>micrometer-registry-statsd</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-otlp</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.coursera</groupId>
       <artifactId>dropwizard-metrics-datadog</artifactId>
     </dependency>
@@ -474,8 +483,8 @@
     </dependency>
 
     <dependency>
-      <groupId>org.signal</groupId>
-      <artifactId>embedded-redis</artifactId>
+      <groupId>com.redis</groupId>
+      <artifactId>testcontainers-redis</artifactId>
       <scope>test</scope>
     </dependency>
 
@@ -483,12 +492,6 @@
       <groupId>com.fasterxml.uuid</groupId>
       <artifactId>java-uuid-generator</artifactId>
       <version>${java-uuid-generator.version}</version>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>com.amazonaws</groupId>
-      <artifactId>DynamoDBLocal</artifactId>
       <scope>test</scope>
     </dependency>
 
@@ -644,8 +647,7 @@
               <execution>
                 <phase>deploy</phase>
                 <goals>
-                  <!-- FLT(uoemai): Allow customizing container image storage. -->
-		  <goal>${jib.goal}</goal>
+                  <goal>build</goal>
                 </goals>
               </execution>
             </executions>
@@ -664,14 +666,12 @@
                 </platforms>
               </from>
               <to>
-                  <image>${docker.repo}:${project.version}</image>
+                <image>${docker.repo}:${project.version}</image>
               </to>
               <container>
                 <mainClass>org.whispersystems.textsecuregcm.WhisperServerService</mainClass>
                 <jvmFlags>
                   <jvmFlag>-server</jvmFlag>
-                  <!-- FLT(uoemai): Pass required property from deployment to the entrypoint. -->
-                  <jvmFlag>-Dsecrets.bundle.filename=${secrets.bundle.filename}</jvmFlag>
                   <jvmFlag>-Djava.awt.headless=true</jvmFlag>
                   <jvmFlag>-Djdk.nio.maxCachedBufferSize=262144</jvmFlag>
                   <jvmFlag>-Dlog4j2.formatMsgNoLookups=true</jvmFlag>
@@ -679,11 +679,6 @@
                   <jvmFlag>-XX:+HeapDumpOnOutOfMemoryError</jvmFlag>
                   <jvmFlag>-XX:HeapDumpPath=/tmp/heapdump.bin</jvmFlag>
                 </jvmFlags>
-                <!-- FLT(uoemai): Pass required arguments to start the server. -->
-                <args>
-                  <arg>server</arg>
-                  <arg>/usr/share/signal/${env}.yml</arg>
-                </args>
                 <ports>
                   <port>8080</port>
                 </ports>
@@ -761,6 +756,12 @@
               <goal>filter-sources</goal>
             </goals>
           </execution>
+          <execution>
+            <id>filter-test-src</id>
+            <goals>
+              <goal>filter-test-sources</goal>
+            </goals>
+          </execution>
         </executions>
       </plugin>
 
@@ -770,9 +771,6 @@
         <configuration>
           <!-- add-opens: work around PATCH not being a supported method on HttpUrlConnection -->
           <argLine>-javaagent:${org.mockito:mockito-core:jar} --add-opens=java.base/java.net=ALL-UNNAMED</argLine>
-          <systemPropertyVariables>
-            <localstackImage>${localstack.image}</localstackImage>
-          </systemPropertyVariables>
         </configuration>
       </plugin>
 

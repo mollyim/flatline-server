@@ -3,9 +3,11 @@ package org.whispersystems.textsecuregcm.storage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyByte;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -31,7 +33,6 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.signal.libsignal.protocol.ecc.Curve;
 import org.signal.libsignal.protocol.ecc.ECKeyPair;
 import org.whispersystems.textsecuregcm.auth.DisconnectionRequestManager;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
@@ -40,7 +41,7 @@ import org.whispersystems.textsecuregcm.identity.IdentityType;
 import org.whispersystems.textsecuregcm.redis.RedisClusterExtension;
 import org.whispersystems.textsecuregcm.redis.RedisServerExtension;
 import org.whispersystems.textsecuregcm.securestorage.SecureStorageClient;
-import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecovery2Client;
+import org.whispersystems.textsecuregcm.securevaluerecovery.SecureValueRecoveryClient;
 import org.whispersystems.textsecuregcm.tests.util.AccountsHelper;
 import org.whispersystems.textsecuregcm.tests.util.KeysHelper;
 import org.whispersystems.textsecuregcm.util.Pair;
@@ -62,6 +63,7 @@ public class AddRemoveDeviceIntegrationTest {
       DynamoDbExtensionSchema.Tables.USERNAMES,
       DynamoDbExtensionSchema.Tables.EC_KEYS,
       DynamoDbExtensionSchema.Tables.PQ_KEYS,
+      DynamoDbExtensionSchema.Tables.PAGED_PQ_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_EC_SIGNED_PRE_KEYS,
       DynamoDbExtensionSchema.Tables.REPEATED_USE_KEM_SIGNED_PRE_KEYS);
 
@@ -75,7 +77,7 @@ public class AddRemoveDeviceIntegrationTest {
   static final S3LocalStackExtension S3_EXTENSION = new S3LocalStackExtension("testbucket");
 
   private ExecutorService accountLockExecutor;
-  private ScheduledExecutorService messagePollExecutor;
+  private ScheduledExecutorService scheduledExecutorService;
 
   private KeysManager keysManager;
   private ClientPublicKeysManager clientPublicKeysManager;
@@ -121,7 +123,7 @@ public class AddRemoveDeviceIntegrationTest {
         DynamoDbExtensionSchema.Tables.USED_LINK_DEVICE_TOKENS.tableName());
 
     accountLockExecutor = Executors.newSingleThreadExecutor();
-    messagePollExecutor = mock(ScheduledExecutorService.class);
+    scheduledExecutorService = mock(ScheduledExecutorService.class);
 
     final AccountLockManager accountLockManager = new AccountLockManager(DYNAMO_DB_EXTENSION.getDynamoDbClient(),
         DynamoDbExtensionSchema.Tables.DELETED_ACCOUNTS_LOCK.tableName());
@@ -131,8 +133,8 @@ public class AddRemoveDeviceIntegrationTest {
     final SecureStorageClient secureStorageClient = mock(SecureStorageClient.class);
     when(secureStorageClient.deleteStoredData(any())).thenReturn(CompletableFuture.completedFuture(null));
 
-    final SecureValueRecovery2Client svr2Client = mock(SecureValueRecovery2Client.class);
-    when(svr2Client.deleteBackups(any())).thenReturn(CompletableFuture.completedFuture(null));
+    final SecureValueRecoveryClient svr2Client = mock(SecureValueRecoveryClient.class);
+    when(svr2Client.removeData(any(UUID.class))).thenReturn(CompletableFuture.completedFuture(null));
 
     final PhoneNumberIdentifiers phoneNumberIdentifiers =
         new PhoneNumberIdentifiers(DYNAMO_DB_EXTENSION.getDynamoDbAsyncClient(),
@@ -142,7 +144,7 @@ public class AddRemoveDeviceIntegrationTest {
     when(messagesManager.clear(any(), anyByte())).thenReturn(CompletableFuture.completedFuture(null));
 
     final ProfilesManager profilesManager = mock(ProfilesManager.class);
-    when(profilesManager.deleteAll(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(profilesManager.deleteAll(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
     final RegistrationRecoveryPasswordsManager registrationRecoveryPasswordsManager =
         mock(RegistrationRecoveryPasswordsManager.class);
@@ -170,7 +172,8 @@ public class AddRemoveDeviceIntegrationTest {
         mock(RegistrationRecoveryPasswordsManager.class),
         clientPublicKeysManager,
         accountLockExecutor,
-        messagePollExecutor,
+        scheduledExecutorService,
+        scheduledExecutorService,
         clock,
         "link-device-secret".getBytes(StandardCharsets.UTF_8),
         dynamicConfigurationManager);
@@ -194,8 +197,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
     assertEquals(1, accountsManager.getByAccountIdentifier(account.getUuid()).orElseThrow().getDevices().size());
@@ -243,8 +246,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
     assertEquals(1, accountsManager.getByAccountIdentifier(account.getUuid()).orElseThrow().getDevices().size());
@@ -304,8 +307,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
     assertEquals(1, accountsManager.getByAccountIdentifier(account.getUuid()).orElseThrow().getDevices().size());
@@ -330,8 +333,8 @@ public class AddRemoveDeviceIntegrationTest {
 
     final byte addedDeviceId = updatedAccountAndDevice.second().getId();
 
-    clientPublicKeysManager.setPublicKey(account, Device.PRIMARY_ID, Curve.generateKeyPair().getPublicKey()).join();
-    clientPublicKeysManager.setPublicKey(account, addedDeviceId, Curve.generateKeyPair().getPublicKey()).join();
+    clientPublicKeysManager.setPublicKey(account, Device.PRIMARY_ID, ECKeyPair.generate().getPublicKey()).join();
+    clientPublicKeysManager.setPublicKey(account, addedDeviceId, ECKeyPair.generate().getPublicKey()).join();
 
     final Account updatedAccount = accountsManager.removeDevice(updatedAccountAndDevice.first(), addedDeviceId).join();
 
@@ -359,8 +362,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
     assertEquals(1, accountsManager.getByAccountIdentifier(account.getUuid()).orElseThrow().getDevices().size());
@@ -395,9 +398,9 @@ public class AddRemoveDeviceIntegrationTest {
 
     final Account retrievedAccount = accountsManager.getByAccountIdentifierAsync(aci).join().orElseThrow();
 
-    clientPublicKeysManager.setPublicKey(retrievedAccount, Device.PRIMARY_ID, Curve.generateKeyPair().getPublicKey())
+    clientPublicKeysManager.setPublicKey(retrievedAccount, Device.PRIMARY_ID, ECKeyPair.generate().getPublicKey())
         .join();
-    clientPublicKeysManager.setPublicKey(retrievedAccount, addedDeviceId, Curve.generateKeyPair().getPublicKey())
+    clientPublicKeysManager.setPublicKey(retrievedAccount, addedDeviceId, ECKeyPair.generate().getPublicKey())
         .join();
 
     assertEquals(2, retrievedAccount.getDevices().size());
@@ -425,8 +428,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
 
@@ -470,6 +473,8 @@ public class AddRemoveDeviceIntegrationTest {
 
     assertEquals(updatedAccountAndDevice.second().getId(), deviceInfo.id());
     assertEquals(updatedAccountAndDevice.second().getCreated(), deviceInfo.created());
+    assertEquals(updatedAccountAndDevice.second().getRegistrationId(IdentityType.ACI), deviceInfo.registrationId());
+    assertNotNull(deviceInfo.createdAtCiphertext());
   }
 
   @Test
@@ -478,8 +483,8 @@ public class AddRemoveDeviceIntegrationTest {
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
 
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
 
     final Account account = AccountsHelper.createAccount(accountsManager, number);
 
@@ -517,6 +522,8 @@ public class AddRemoveDeviceIntegrationTest {
 
     assertEquals(updatedAccountAndDevice.second().getId(), deviceInfo.id());
     assertEquals(updatedAccountAndDevice.second().getCreated(), deviceInfo.created());
+    assertEquals(updatedAccountAndDevice.second().getRegistrationId(IdentityType.ACI), deviceInfo.registrationId());
+    assertNotNull(deviceInfo.createdAtCiphertext());
   }
 
   @Test
@@ -550,8 +557,8 @@ public class AddRemoveDeviceIntegrationTest {
     final String number = PhoneNumberUtil.getInstance().format(
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
     final Account account = AccountsHelper.createAccount(accountsManager, number);
 
     final String linkDeviceToken = accountsManager.generateLinkDeviceToken(UUID.randomUUID());
@@ -597,8 +604,8 @@ public class AddRemoveDeviceIntegrationTest {
     final String number = PhoneNumberUtil.getInstance().format(
         PhoneNumberUtil.getInstance().getExampleNumber("US"),
         PhoneNumberUtil.PhoneNumberFormat.E164);
-    final ECKeyPair aciKeyPair = Curve.generateKeyPair();
-    final ECKeyPair pniKeyPair = Curve.generateKeyPair();
+    final ECKeyPair aciKeyPair = ECKeyPair.generate();
+    final ECKeyPair pniKeyPair = ECKeyPair.generate();
     final Account account = AccountsHelper.createAccount(accountsManager, number);
 
     final String linkDeviceToken = accountsManager.generateLinkDeviceToken(UUID.randomUUID());
@@ -629,7 +636,7 @@ public class AddRemoveDeviceIntegrationTest {
         .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
     clock.pin(Instant.ofEpochMilli(10_000));
     // Run any scheduled job right away
-    when(messagePollExecutor.schedule(any(Runnable.class), anyLong(), any())).thenAnswer(x -> {
+    when(scheduledExecutorService.schedule(any(Runnable.class), anyLong(), any())).thenAnswer(x -> {
       x.getArgument(0, Runnable.class).run();
       return null;
     });
