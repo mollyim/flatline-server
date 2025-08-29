@@ -11,8 +11,7 @@ EXPOSE 8080
 
 # Required, along with libsgx-quote-ex, for out-of-proc attestation. See
 # https://docs.microsoft.com/en-us/azure/confidential-computing/confidential-nodes-aks-addon
-# FLT(uoemai): Allow SGX to run in simulation mode.
-# ENV SGX_AESM_ADDR=1
+ENV SGX_AESM_ADDR=1
 
 RUN groupadd --gid 10000 cds && useradd --uid 10000 --gid 10000 cds
 USER 10000
