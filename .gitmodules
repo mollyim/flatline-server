@@ -1,9 +1,0 @@
-[submodule "contact-discovery-service/c/SipHash"]
-	path = contact-discovery-service/c/SipHash
-	url = https://github.com/veorq/SipHash
-[submodule "contact-discovery-service/c/noise-c"]
-	path = contact-discovery-service/c/noise-c
-	url = https://github.com/signalapp/noise-c.git
-[submodule "contact-discovery-service/c/libsodium"]
-	path = contact-discovery-service/c/libsodium
-	url = https://github.com/jedisct1/libsodium

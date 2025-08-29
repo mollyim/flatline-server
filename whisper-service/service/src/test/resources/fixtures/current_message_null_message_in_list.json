@@ -1,8 +1,0 @@
-{
-    "timestamp" : 1234,
-    "messages" : [ {
-      "type" : 1,
-      "destinationDeviceId" : 1,
-      "content" : "Zm9vYmFyego"
-    }, null ]
-}
