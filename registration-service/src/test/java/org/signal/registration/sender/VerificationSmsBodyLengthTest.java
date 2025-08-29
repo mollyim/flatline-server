@@ -7,6 +7,8 @@ package org.signal.registration.sender;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.micronaut.context.MessageSource;
+import io.micronaut.context.i18n.ResourceBundleMessageSource;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -18,9 +20,13 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetEncoder;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.stream.Stream;
+import org.apache.commons.lang3.RandomStringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -31,21 +37,24 @@ class VerificationSmsBodyLengthTest {
 
   private static final int SMS_SEGMENT_LENGTH_OCTETS = 140;
 
+  private static final int VERIFICATION_CODE_DIGITS = 6;
+  private static final int APP_HASH_LENGTH = 11;
+
   private static final CharsetEncoder GSM7_ENCODER = new GSM7BitPackedCharset().newEncoder();
   private static final CharsetEncoder UCS2_ENCODER = new UCS2Charset80().newEncoder();
 
+  private static final MessageSource MESSAGE_SOURCE =
+      new ResourceBundleMessageSource("org.signal.registration.sender.sms");
+
   @ParameterizedTest
   @MethodSource
-  void messageFitsInSingleSMSSegment(final File propertiesFile, final String key) throws IOException {
-    final Properties properties = new Properties();
+  void messageFitsInSingleSMSSegment(final Locale locale, final String key) throws IOException {
+    final MessageSource.MessageContext messageContext =
+        MessageSource.MessageContext.of(locale, Map.of(
+            "code", RandomStringUtils.insecure().nextNumeric(VERIFICATION_CODE_DIGITS),
+            "appHash", RandomStringUtils.insecure().nextAlphanumeric(APP_HASH_LENGTH)));
 
-    try (final FileReader fileReader = new FileReader(propertiesFile)) {
-      properties.load(fileReader);
-    }
-
-    final String message = properties.getProperty(key)
-        .replace("{code}", "123456")
-        .replace("{appHash}", "12345678901");
+    final String message = MESSAGE_SOURCE.getRequiredMessage(key, messageContext);
 
     assertTrue(getEncodedMessageLengthOctets(message) <= SMS_SEGMENT_LENGTH_OCTETS);
   }
@@ -53,9 +62,13 @@ class VerificationSmsBodyLengthTest {
   private static int getEncodedMessageLengthOctets(final String message) throws CharacterCodingException {
     if (GSM7_ENCODER.canEncode(message)) {
       return GSM7_ENCODER.encode(CharBuffer.wrap(message)).remaining();
-    } else {
-      return UCS2_ENCODER.encode(CharBuffer.wrap(message)).remaining();
+    } else if (UCS2_ENCODER.canEncode(message)) {
+      // We subtract 1 here because `threegpp.charset.ucs2.UCS2Charset80` prepends a header byte that's not actually
+      // needed for SMS.
+      return UCS2_ENCODER.encode(CharBuffer.wrap(message)).remaining() - 1;
     }
+
+    throw new IllegalArgumentException("No telecom encoder encodes message");
   }
 
   private static Stream<Arguments> messageFitsInSingleSMSSegment() throws URISyntaxException {
@@ -74,7 +87,13 @@ class VerificationSmsBodyLengthTest {
             throw new UncheckedIOException(e);
           }
 
-          return properties.keySet().stream().map(key -> Arguments.of(file, key));
+          final String languageTag =
+              StringUtils.removeEnd(StringUtils.removeStart(file.getName(), "sms_"), ".properties")
+                  .replace('_', '-');
+
+          return properties.keySet().stream()
+              .map(key -> Arguments.argumentSet("%s: %s".formatted(languageTag, key),
+                  Locale.forLanguageTag(languageTag), key));
         });
   }
 }

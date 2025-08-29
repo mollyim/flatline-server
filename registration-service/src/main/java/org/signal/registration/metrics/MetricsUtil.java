@@ -19,6 +19,7 @@ public class MetricsUtil {
   public static final String SUCCESS_TAG_NAME = "success";
   public static final String TRANSPORT_TAG_NAME = "transport";
   public static final String VERIFIED_TAG_NAME = "verified";
+  public static final String FIRST_ATTEMPT_TAG_NAME = "firstAttempt";
 
   /**
    * Returns a qualified name for a metric contained within the given class.

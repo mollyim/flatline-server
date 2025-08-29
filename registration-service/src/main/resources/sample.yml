@@ -13,6 +13,10 @@ micronaut:
         enabled: true
         step: 20s
 
+      otlp:
+        enabled: true
+        step: 20s
+
     tags:
       # Note that an `instance` tag is added at runtime in `Application.java`
       service: registration

@@ -15,9 +15,7 @@
   <parent>
     <groupId>io.micronaut.platform</groupId>
     <artifactId>micronaut-parent</artifactId>
-    <version>4.7.6</version>
-    <!-- FLT(uoemai): Prevent traversing when looking for a parent project. -->
-    <relativePath/>
+    <version>4.8.3</version>
   </parent>
 
   <properties>
@@ -28,15 +26,18 @@
     <exec.mainClass>org.signal.registration.Application</exec.mainClass>
 
     <!-- See https://console.cloud.google.com/artifacts/docker/google.com:cloudsdktool/us/gcr.io/google-cloud-cli -->
-    <firestore.emulator.version>514.0.0-emulators</firestore.emulator.version>
+    <firestore.emulator.version>526.0.1-emulators</firestore.emulator.version>
     <reactive.grpc.version>1.2.4</reactive.grpc.version>
-    <testcontainers.version>1.20.6</testcontainers.version>
+    <testcontainers.version>1.21.2</testcontainers.version>
+
+    <!-- This overrides the grpc version in the micronaut-parent pom we inherit from. Micronaut 4.8.3 uses gRPC 1.69.1
+    which is runtime incompatible with google-cloud which brings in 1.71.0 libraries. Micronaut 4.9.0 uses an updated
+    gRPC, so when we update to that this line should be removed. However, Micronaut 4.9.0 also includes netty 4.2, which
+    is incompatible with google-cloud libraries, and a version that includes netty 4.2 is not currently available -->
+    <grpc.version>1.71.0</grpc.version>
 
     <!-- eclipse-temurin:21-jre-jammy (note: always use the multi-arch manifest *LIST* here); see https://hub.docker.com/_/eclipse-temurin -->
-    <docker.image.sha256>02fc89fa8766a9ba221e69225f8d1c10bb91885ddbd3c112448e23488ba40ab6</docker.image.sha256>
-
-    <!-- FLT(uoemai): Default to storing container image locally. Use "build" to push to a registry. -->
-    <jib.goal>dockerBuild</jib.goal>
+    <docker.image.sha256>034ce51c134cb9abcf28e2bda88fa36ac51369bb26351d697297e81caa9a5d76</docker.image.sha256>
   </properties>
 
   <repositories>
@@ -51,7 +52,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>libraries-bom</artifactId>
-        <version>26.56.0</version>
+        <version>26.62.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -90,7 +91,7 @@
     <dependency>
       <groupId>net.logstash.logback</groupId>
       <artifactId>logstash-logback-encoder</artifactId>
-      <version>7.2</version>
+      <version>8.1</version>
     </dependency>
 
     <dependency>
@@ -106,13 +107,21 @@
     <dependency>
       <groupId>com.googlecode.libphonenumber</groupId>
       <artifactId>libphonenumber</artifactId>
-      <version>9.0.1</version>
+      <version>9.0.7</version>
     </dependency>
 
     <dependency>
       <groupId>com.messagebird</groupId>
       <artifactId>messagebird-api</artifactId>
-      <version>6.2.2</version>
+      <version>6.2.5</version>
+
+      <exclusions>
+        <!-- Conflicts with our direct dependency -->
+        <exclusion>
+          <groupId>org.apache.commons</groupId>
+          <artifactId>commons-lang3</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>
@@ -140,7 +149,7 @@
     <dependency>
       <groupId>com.twilio.sdk</groupId>
       <artifactId>twilio</artifactId>
-      <version>10.7.0</version>
+      <version>10.9.2</version>
 
       <exclusions>
         <!-- Conflicts with pretty much everything in com.google.cloud:*, which has a newer version -->
@@ -177,14 +186,14 @@
     <dependency>
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
-      <version>2.17.0</version>
+      <version>2.18.0</version>
     </dependency>
 
     <!-- Compensate for transitive dependencies knocked out by Twilio's exclusions -->
     <dependency>
       <groupId>commons-logging</groupId>
       <artifactId>commons-logging</artifactId>
-      <version>1.3.4</version>
+      <version>1.3.5</version>
       <scope>runtime</scope>
     </dependency>
 
@@ -217,6 +226,12 @@
         <exclusion>
           <groupId>commons-codec</groupId>
           <artifactId>commons-codec</artifactId>
+        </exclusion>
+
+        <!-- conflicts with com.google.cloud:* which has a newer version -->
+        <exclusion>
+          <groupId>com.google.re2j</groupId>
+          <artifactId>re2j</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -257,6 +272,10 @@
       <artifactId>micronaut-micrometer-registry-datadog</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.micronaut.micrometer</groupId>
+      <artifactId>micronaut-micrometer-registry-otlp</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.micronaut.picocli</groupId>
       <artifactId>micronaut-picocli</artifactId>
       <version>${micronaut.picocli.version}</version>
@@ -283,7 +302,7 @@
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
-      <version>3.12.0</version>
+      <version>3.18.0</version>
     </dependency>
 
     <dependency>
@@ -295,7 +314,7 @@
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-csv</artifactId>
-      <version>1.12.0</version>
+      <version>1.14.0</version>
       <exclusions>
         <!-- conflicts with com.google.cloud:* which has a newer version -->
         <exclusion>
@@ -356,6 +375,12 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.junit-pioneer</groupId>
+      <artifactId>junit-pioneer</artifactId>
+      <version>2.3.0</version>
+      <scope>test</scope>
+    </dependency>
 
     <dependency>
       <groupId>org.mockito</groupId>
@@ -364,9 +389,9 @@
     </dependency>
 
     <dependency>
-      <groupId>org.signal</groupId>
-      <artifactId>embedded-redis</artifactId>
-      <version>0.8.3</version>
+      <groupId>com.redis</groupId>
+      <artifactId>testcontainers-redis</artifactId>
+      <version>2.2.2</version>
       <scope>test</scope>
     </dependency>
 
@@ -511,16 +536,6 @@
         <groupId>com.google.cloud.tools</groupId>
         <artifactId>jib-maven-plugin</artifactId>
         <version>${jib-maven-plugin.version}</version>
-        <!-- FLT(uoemai): Create container image when packaging. -->
-        <executions>
-            <execution>
-                <phase>package</phase>
-                <goals>
-                    <!-- FLT(uoemai): Allow customizing container image storage. -->
-	            <goal>${jib.goal}</goal>
-                </goals>
-            </execution>
-        </executions>
         <configuration>
           <from>
             <image>eclipse-temurin@sha256:${docker.image.sha256}</image>
@@ -529,11 +544,8 @@
           <container>
             <jvmFlags>
               <jvmFlag>-XX:MaxRAMPercentage=75</jvmFlag>
-              <!-- FLT(uoemai): Run the service in development mode. -->
-              <jvmFlag>-Dmicronaut.environments=dev</jvmFlag>
             </jvmFlags>
-            <!-- FLT(uoemai): Timestamp container image. -->
-            <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
+
             <!-- Because we have two executable classes (the service itself and the CLI), we need to specify which
             should be the entrypoint for Docker images -->
             <mainClass>org.signal.registration.Application</mainClass>

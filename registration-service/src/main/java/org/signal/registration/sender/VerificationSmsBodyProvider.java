@@ -115,4 +115,9 @@ public class VerificationSmsBodyProvider extends AbstractVerificationBodyProvide
   protected MessageTransport transport() {
     return MessageTransport.SMS;
   }
+
+  @VisibleForTesting
+  protected MessageSource getMessageSource() {
+    return messageSource;
+  }
 }

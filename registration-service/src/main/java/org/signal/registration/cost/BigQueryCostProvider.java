@@ -76,8 +76,8 @@ public class BigQueryCostProvider implements CostProvider {
             WITH prices AS (
               SELECT
                 completed.timestamp, completed.region, completed.sender_name, completed.message_transport,
-                COALESCE(price_micros, estimated_price_micros) as price_micros,
-                COALESCE(currency, estimated_price_currency) as currency
+                COALESCE(price_micros, estimated_price_micros) as computed_price_micros,
+                COALESCE(currency, estimated_price_currency) as computed_currency
               FROM `%s` as analyzed
               JOIN `%s` as completed
                 ON analyzed.session_id=completed.session_id
@@ -85,11 +85,11 @@ public class BigQueryCostProvider implements CostProvider {
                 AND analyzed.attempt_id=0
                 AND completed.timestamp > @window_start_ts
                 AND analyzed.timestamp > @window_start_ts
-                AND currency is NOT NULL)
+                AND COALESCE(currency, estimated_price_currency) is NOT NULL)
             SELECT
-              message_transport, sender_name, region, currency, AVG(price_micros) as avg_price
+              message_transport, sender_name, region, computed_currency as currency, AVG(computed_price_micros) as avg_price
             FROM prices
-            GROUP BY message_transport, region, sender_name, currency
+            GROUP BY message_transport, region, sender_name, computed_currency
             ORDER BY region, sender_name
             """.formatted(analyzedAttemptsTableName, completedAttemptsTableName))
         .setUseLegacySql(false)
