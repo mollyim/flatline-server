@@ -17,9 +17,6 @@ import io.dropwizard.auth.PolymorphicAuthDynamicFeature;
 import io.dropwizard.auth.PolymorphicAuthValueFactoryProvider;
 import io.dropwizard.auth.basic.BasicCredentialAuthFilter;
 import io.dropwizard.auth.basic.BasicCredentials;
-import io.dropwizard.configuration.EnvironmentVariableSubstitutor;
-import io.dropwizard.configuration.ResourceConfigurationSourceProvider;
-import io.dropwizard.configuration.SubstitutingSourceProvider;
 import io.dropwizard.core.Application;
 import io.dropwizard.core.setup.Bootstrap;
 import io.dropwizard.core.setup.Environment;
@@ -57,18 +54,11 @@ import org.signal.storageservice.util.logging.LoggingUnhandledExceptionMapper;
 public class StorageService extends Application<StorageServiceConfiguration> {
 
   @Override
-  public void initialize(Bootstrap<StorageServiceConfiguration> bootstrap) {
-    bootstrap.setConfigurationSourceProvider(
-        new SubstitutingSourceProvider(
-            bootstrap.getConfigurationSourceProvider(),
-            new EnvironmentVariableSubstitutor(true, false))
-    );
-  }
+  public void initialize(Bootstrap<StorageServiceConfiguration> bootstrap) { }
 
   @Override
   public void run(StorageServiceConfiguration config, Environment environment) throws Exception {
-    // FLT(uoemai): Remove dependency on Datadog SaaS during development.
-    // MetricsUtil.configureRegistries(config, environment);
+    MetricsUtil.configureRegistries(config, environment);
 
     UncaughtExceptionHandler.register();
 
@@ -118,9 +108,9 @@ public class StorageService extends Application<StorageServiceConfiguration> {
     environment.jersey().register(new GroupsController(Clock.systemUTC(), groupsManager, serverSecretParams, policySigner, postPolicyGenerator, config.getGroupConfiguration(), externalGroupCredentialGenerator));
     environment.jersey().register(new GroupsV1Controller(Clock.systemUTC(), groupsManager, serverSecretParams, policySigner, postPolicyGenerator, config.getGroupConfiguration(), externalGroupCredentialGenerator));
 
-    // FLT(uoemai): Remove dependency on Datadog SaaS during development.
-    // new MetricsHttpChannelListener().configure(environment);
-    // MetricsUtil.registerSystemResourceMetrics(environment);
+    new MetricsHttpChannelListener().configure(environment);
+
+    MetricsUtil.registerSystemResourceMetrics(environment);
   }
 
   public static void main(String[] argv) throws Exception {
